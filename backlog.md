@@ -2,13 +2,13 @@
 
 ## Lot 0 — Setup projet
 
-- [ ] **0.1** Initialiser le repo : `pyproject.toml` (uv), structure `src/strava_connect/`, `tests/`, `data/`, `tasks/`
-- [ ] **0.2** Configurer ruff, mypy, pytest dans `pyproject.toml`
-- [ ] **0.3** Écrire le `Makefile` (install, validate, test, lint, format, typecheck)
-- [ ] **0.4** Configurer `.gitignore` (data/, .venv/, __pycache__, etc.)
-- [ ] **0.5** Configurer pre-commit : gitleaks + make validate (via Husky ou pre-commit hook git natif)
-- [ ] **0.6** CI GitHub Actions : lint + typecheck + tests sur push/PR
-- [ ] **0.7** Initialiser `tasks/todo.md` et `tasks/lessons.md`
+- [x] **0.1** Initialiser le repo : `pyproject.toml` (uv), structure `src/strava_connect/`, `tests/`, `data/`, `tasks/`
+- [x] **0.2** Configurer ruff, mypy, pytest dans `pyproject.toml`
+- [x] **0.3** Écrire le `Makefile` (install, validate, test, lint, format, typecheck)
+- [x] **0.4** Configurer `.gitignore` (data/, .venv/, __pycache__, etc.)
+- [x] **0.5** Configurer pre-commit : gitleaks + make validate (framework `pre-commit`)
+- [x] **0.6** CI GitHub Actions : lint + typecheck + tests sur push/PR
+- [x] **0.7** Initialiser `tasks/todo.md` et `tasks/lessons.md`
 
 ## Lot 1 — Authentification & base de données
 
