@@ -12,14 +12,14 @@
 
 ## Lot 1 — Authentification & base de données
 
-- [ ] **1.1** Créer le schéma SQLite (tables : athletes, activities, activity_streams, activity_laps, activity_zones, sync_log) avec migrations versionnées
-- [ ] **1.2** Implémenter la couche DB (`db.py`) : connexion, migrations, CRUD de base
-- [ ] **1.3** Implémenter le flow OAuth2 (`auth.py`) : ouverture navigateur, serveur callback local, échange code → tokens, stockage dans `data/tokens.json`
-- [ ] **1.4** Implémenter le refresh automatique des tokens
-- [ ] **1.5** Commande CLI `strava-connect auth` : flow complet d'authentification
-- [ ] **1.6** Commande CLI `strava-connect status` : état de la DB, dernière sync, nombre d'activités
-- [ ] **1.7** Tests unitaires : DB CRUD avec SQLite en mémoire, migrations, refresh token (mock HTTP)
-- [ ] **1.8** Tests intégration : commande `auth` complète avec faux serveur HTTP simulant Strava
+- [x] **1.1** Créer le schéma SQLite (tables : athletes, activities, activity_streams, activity_laps, activity_zones, sync_log) avec migrations versionnées
+- [x] **1.2** Implémenter la couche DB (`db.py`) : connexion, migrations, CRUD de base
+- [x] **1.3** Implémenter le flow OAuth2 (`auth.py`) : ouverture navigateur, serveur callback local, échange code → tokens, stockage dans `data/tokens.json`
+- [x] **1.4** Implémenter le refresh automatique des tokens
+- [x] **1.5** Commande CLI `strava-connect auth` : flow complet d'authentification
+- [x] **1.6** Commande CLI `strava-connect status` : état de la DB, dernière sync, nombre d'activités
+- [x] **1.7** Tests unitaires : DB CRUD avec SQLite en mémoire, migrations, refresh token (mock HTTP)
+- [x] **1.8** Tests intégration : commande `auth` complète avec faux serveur HTTP simulant Strava
 
 ## Lot 2 — Import historique
 
