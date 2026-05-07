@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from strava_connect.models import Activity, Athlete, Lap, Stream, SyncLog, Zone
+from strava_connect.models import Activity, Athlete, AthleteMetrics, Lap, Stream, SyncLog, Zone
 
 DEFAULT_DB_PATH = Path("data/strava.db")
 
@@ -127,8 +127,51 @@ def _migration_001_initial_schema(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migration_002_athlete_metrics(conn: sqlite3.Connection) -> None:
+    """Sépare les métriques (poids/FTP/...) historisées dans `athlete_metrics`.
+
+    `athletes` devient une table de référence (juste l'id, FK des activités).
+    """
+    conn.executescript("""
+        CREATE TABLE athlete_metrics (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            athlete_id  INTEGER NOT NULL REFERENCES athletes(id),
+            recorded_at TEXT NOT NULL,
+            weight_kg   REAL,
+            ftp_watts   INTEGER,
+            fc_max      INTEGER,
+            fc_repos    INTEGER,
+            vma_kmh     REAL,
+            note        TEXT
+        );
+        CREATE INDEX idx_athlete_metrics_athlete_recorded
+            ON athlete_metrics(athlete_id, recorded_at DESC);
+
+        -- Préserve les données existantes (filet de sécurité même si table vide).
+        INSERT INTO athlete_metrics
+            (athlete_id, recorded_at, weight_kg, ftp_watts, fc_max, fc_repos, vma_kmh)
+        SELECT id,
+               COALESCE(updated_at, '1970-01-01T00:00:00+00:00'),
+               weight_kg, ftp_watts, fc_max, fc_repos, vma_kmh
+        FROM athletes
+        WHERE weight_kg IS NOT NULL
+           OR ftp_watts IS NOT NULL
+           OR fc_max IS NOT NULL
+           OR fc_repos IS NOT NULL
+           OR vma_kmh IS NOT NULL;
+
+        ALTER TABLE athletes DROP COLUMN weight_kg;
+        ALTER TABLE athletes DROP COLUMN ftp_watts;
+        ALTER TABLE athletes DROP COLUMN fc_max;
+        ALTER TABLE athletes DROP COLUMN fc_repos;
+        ALTER TABLE athletes DROP COLUMN vma_kmh;
+        ALTER TABLE athletes DROP COLUMN updated_at;
+    """)
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _migration_001_initial_schema,
+    _migration_002_athlete_metrics,
 ]
 
 
@@ -144,50 +187,16 @@ def migrate(conn: sqlite3.Connection) -> int:
 
 
 def get_athlete(conn: sqlite3.Connection, athlete_id: int) -> Athlete | None:
-    row = conn.execute(
-        "SELECT id, weight_kg, ftp_watts, fc_max, fc_repos, vma_kmh, updated_at "
-        "FROM athletes WHERE id = ?",
-        (athlete_id,),
-    ).fetchone()
+    row = conn.execute("SELECT id FROM athletes WHERE id = ?", (athlete_id,)).fetchone()
     if row is None:
         return None
-    updated_at = datetime.fromisoformat(row["updated_at"]) if row["updated_at"] else None
-    return Athlete(
-        id=row["id"],
-        weight_kg=row["weight_kg"],
-        ftp_watts=row["ftp_watts"],
-        fc_max=row["fc_max"],
-        fc_repos=row["fc_repos"],
-        vma_kmh=row["vma_kmh"],
-        updated_at=updated_at,
-    )
+    return Athlete(id=row["id"])
 
 
 def upsert_athlete(conn: sqlite3.Connection, athlete: Athlete) -> None:
-    updated_at = athlete.updated_at.isoformat() if athlete.updated_at else None
+    """Insert ou no-op si l'athlete existe déjà. Utilisé pour la FK des activités."""
     with conn:
-        conn.execute(
-            """
-            INSERT INTO athletes (id, weight_kg, ftp_watts, fc_max, fc_repos, vma_kmh, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                weight_kg  = excluded.weight_kg,
-                ftp_watts  = excluded.ftp_watts,
-                fc_max     = excluded.fc_max,
-                fc_repos   = excluded.fc_repos,
-                vma_kmh    = excluded.vma_kmh,
-                updated_at = excluded.updated_at
-            """,
-            (
-                athlete.id,
-                athlete.weight_kg,
-                athlete.ftp_watts,
-                athlete.fc_max,
-                athlete.fc_repos,
-                athlete.vma_kmh,
-                updated_at,
-            ),
-        )
+        conn.execute("INSERT OR IGNORE INTO athletes (id) VALUES (?)", (athlete.id,))
 
 
 def get_last_sync(conn: sqlite3.Connection) -> SyncLog | None:
@@ -371,3 +380,126 @@ def finish_sync(
             "error_message = ? WHERE id = ?",
             (finished_at, status, activities_fetched, error_message, sync_id),
         )
+
+
+# --- Athlete metrics (Lot 4) -----------------------------------------------
+
+
+def _row_to_metrics(row: sqlite3.Row) -> AthleteMetrics:
+    return AthleteMetrics(
+        id=row["id"],
+        athlete_id=row["athlete_id"],
+        recorded_at=datetime.fromisoformat(row["recorded_at"]),
+        weight_kg=row["weight_kg"],
+        ftp_watts=row["ftp_watts"],
+        fc_max=row["fc_max"],
+        fc_repos=row["fc_repos"],
+        vma_kmh=row["vma_kmh"],
+        note=row["note"],
+    )
+
+
+def get_latest_metrics(conn: sqlite3.Connection, athlete_id: int) -> AthleteMetrics | None:
+    row = conn.execute(
+        "SELECT id, athlete_id, recorded_at, weight_kg, ftp_watts, fc_max, fc_repos, "
+        "vma_kmh, note FROM athlete_metrics WHERE athlete_id = ? "
+        "ORDER BY recorded_at DESC, id DESC LIMIT 1",
+        (athlete_id,),
+    ).fetchone()
+    return _row_to_metrics(row) if row else None
+
+
+def get_metrics_history(
+    conn: sqlite3.Connection, athlete_id: int, *, limit: int | None = None
+) -> list[AthleteMetrics]:
+    sql = (
+        "SELECT id, athlete_id, recorded_at, weight_kg, ftp_watts, fc_max, fc_repos, "
+        "vma_kmh, note FROM athlete_metrics WHERE athlete_id = ? "
+        "ORDER BY recorded_at DESC, id DESC"
+    )
+    params: tuple[object, ...] = (athlete_id,)
+    if limit is not None:
+        sql += " LIMIT ?"
+        params = (athlete_id, int(limit))
+    rows = conn.execute(sql, params).fetchall()
+    return [_row_to_metrics(row) for row in rows]
+
+
+def insert_athlete_metrics(
+    conn: sqlite3.Connection,
+    athlete_id: int,
+    *,
+    weight_kg: float | None = None,
+    ftp_watts: int | None = None,
+    fc_max: int | None = None,
+    fc_repos: int | None = None,
+    vma_kmh: float | None = None,
+    note: str | None = None,
+    recorded_at: datetime | None = None,
+) -> AthleteMetrics:
+    """Insère une nouvelle ligne `athlete_metrics`.
+
+    Les champs non fournis (None) sont repris de la dernière entrée connue —
+    permet un `set --weight 75` qui ne touche pas au FTP.
+    """
+    previous = get_latest_metrics(conn, athlete_id)
+
+    def _merge(new: object, prev: object) -> object:
+        return new if new is not None else prev
+
+    final_weight = _merge(weight_kg, previous.weight_kg if previous else None)
+    final_ftp = _merge(ftp_watts, previous.ftp_watts if previous else None)
+    final_fc_max = _merge(fc_max, previous.fc_max if previous else None)
+    final_fc_repos = _merge(fc_repos, previous.fc_repos if previous else None)
+    final_vma = _merge(vma_kmh, previous.vma_kmh if previous else None)
+
+    # Garantit que l'athlete existe (FK).
+    upsert_athlete(conn, Athlete(id=athlete_id))
+
+    recorded = (recorded_at or datetime.now(tz=UTC)).isoformat()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO athlete_metrics "
+            "(athlete_id, recorded_at, weight_kg, ftp_watts, fc_max, fc_repos, vma_kmh, note) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                athlete_id,
+                recorded,
+                final_weight,
+                final_ftp,
+                final_fc_max,
+                final_fc_repos,
+                final_vma,
+                note,
+            ),
+        )
+    inserted = conn.execute(
+        "SELECT id, athlete_id, recorded_at, weight_kg, ftp_watts, fc_max, fc_repos, "
+        "vma_kmh, note FROM athlete_metrics WHERE id = ?",
+        (cur.lastrowid,),
+    ).fetchone()
+    return _row_to_metrics(inserted)
+
+
+def metrics_values_equal(
+    a: AthleteMetrics | None,
+    *,
+    weight_kg: float | None,
+    ftp_watts: int | None,
+    fc_max: int | None,
+    fc_repos: int | None,
+    vma_kmh: float | None,
+) -> bool:
+    """True si toutes les valeurs métriques (poids/FTP/FC/VMA) correspondent à `a`.
+
+    Le champ `note` est exclu — une entrée juste pour annoter doit être permise.
+    """
+    if a is None:
+        return False
+    return (
+        a.weight_kg == weight_kg
+        and a.ftp_watts == ftp_watts
+        and a.fc_max == fc_max
+        and a.fc_repos == fc_repos
+        and a.vma_kmh == vma_kmh
+    )

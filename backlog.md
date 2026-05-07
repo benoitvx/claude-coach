@@ -43,10 +43,10 @@
 
 ## Lot 4 — Données athlète
 
-- [ ] **4.1** Commande CLI `strava-connect athlete set --weight 75 --ftp 250 --fc-max 190 --fc-repos 48 --vma 17.5`
-- [ ] **4.2** Commande CLI `strava-connect athlete show` : afficher les données actuelles
-- [ ] **4.3** Historisation des valeurs (pouvoir voir l'évolution du poids, FTP, etc.)
-- [ ] **4.4** Tests
+- [x] **4.1** Commande CLI `strava-connect athlete set --weight 75 --ftp 250 --fc-max 190 --fc-repos 48 --vma 17.5`
+- [x] **4.2** Commande CLI `strava-connect athlete show` : afficher les données actuelles
+- [x] **4.3** Historisation des valeurs (pouvoir voir l'évolution du poids, FTP, etc.) _(table `athlete_metrics` + commande `athlete history`)_
+- [x] **4.4** Tests
 
 ## Lot 5 — Agent coach IA
 

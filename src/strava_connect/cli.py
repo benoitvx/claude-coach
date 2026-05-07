@@ -17,8 +17,11 @@ from strava_connect.db import (
     connect,
     count_activities,
     db_path_from_env,
-    get_athlete,
     get_last_sync,
+    get_latest_metrics,
+    get_metrics_history,
+    insert_athlete_metrics,
+    metrics_values_equal,
     migrate,
     stats_by_sport,
 )
@@ -92,13 +95,14 @@ def status() -> None:
         return
     with closing(connect(db_path)) as conn:
         migrate(conn)
-        profile = get_athlete(conn, tokens.athlete_id)
-    if profile is None:
-        click.echo("  profil athlète : aucun en DB (à saisir en Lot 4)")
+        metrics = get_latest_metrics(conn, tokens.athlete_id)
+    if metrics is None:
+        click.echo("  profil athlète : aucun (saisis avec `strava-connect athlete set ...`)")
     else:
         click.echo(
-            f"  profil athlète : poids={profile.weight_kg} kg, "
-            f"FTP={profile.ftp_watts}, FCmax={profile.fc_max}"
+            f"  profil athlète : poids={metrics.weight_kg} kg, "
+            f"FTP={metrics.ftp_watts}, FCmax={metrics.fc_max}, "
+            f"FCrepos={metrics.fc_repos}, VMA={metrics.vma_kmh} km/h"
         )
 
 
@@ -170,3 +174,127 @@ def sync(full: bool, limit: int | None, lookback_days: int) -> None:
     click.echo(f"\n{fetched} activités importées (status={status})")
     if status == "partial":
         click.echo("→ Quota journalier atteint, relance demain pour finir.")
+
+
+# --- Sous-commandes athlete (Lot 4) -----------------------------------------
+
+
+def _require_athlete_id() -> int:
+    tokens = load_tokens(token_path_from_env())
+    if tokens is None:
+        raise click.ClickException("Aucun token stocké. Lance d'abord `strava-connect auth`.")
+    return tokens.athlete_id
+
+
+@main.group()
+def athlete() -> None:
+    """Gestion des données athlète (poids, FTP, FCmax, FCrepos, VMA)."""
+
+
+@athlete.command("set")
+@click.option("--weight", type=float, default=None, help="Poids en kg")
+@click.option("--ftp", type=int, default=None, help="FTP en watts")
+@click.option("--fc-max", type=int, default=None, help="Fréquence cardiaque max")
+@click.option("--fc-repos", type=int, default=None, help="Fréquence cardiaque au repos")
+@click.option("--vma", type=float, default=None, help="VMA en km/h")
+@click.option("--note", type=str, default=None, help="Note libre (max ~500 chars)")
+def athlete_set(
+    weight: float | None,
+    ftp: int | None,
+    fc_max: int | None,
+    fc_repos: int | None,
+    vma: float | None,
+    note: str | None,
+) -> None:
+    """Enregistre une nouvelle entrée de métriques (avec timestamp)."""
+    if all(v is None for v in (weight, ftp, fc_max, fc_repos, vma)) and note is None:
+        raise click.ClickException("Aucune valeur fournie. Utilise --weight/--ftp/...")
+
+    athlete_id = _require_athlete_id()
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        previous = get_latest_metrics(conn, athlete_id)
+        effective_weight = (
+            weight if weight is not None else (previous.weight_kg if previous else None)
+        )
+        effective_ftp = ftp if ftp is not None else (previous.ftp_watts if previous else None)
+        effective_fc_max = fc_max if fc_max is not None else (previous.fc_max if previous else None)
+        effective_fc_repos = (
+            fc_repos if fc_repos is not None else (previous.fc_repos if previous else None)
+        )
+        effective_vma = vma if vma is not None else (previous.vma_kmh if previous else None)
+
+        if note is None and metrics_values_equal(
+            previous,
+            weight_kg=effective_weight,
+            ftp_watts=effective_ftp,
+            fc_max=effective_fc_max,
+            fc_repos=effective_fc_repos,
+            vma_kmh=effective_vma,
+        ):
+            click.echo("Aucun changement par rapport à la dernière entrée.")
+            return
+
+        metrics = insert_athlete_metrics(
+            conn,
+            athlete_id,
+            weight_kg=weight,
+            ftp_watts=ftp,
+            fc_max=fc_max,
+            fc_repos=fc_repos,
+            vma_kmh=vma,
+            note=note,
+        )
+    click.echo(f"OK — entrée #{metrics.id} enregistrée à {metrics.recorded_at.isoformat()}")
+
+
+@athlete.command("show")
+def athlete_show() -> None:
+    """Affiche la dernière entrée de métriques."""
+    athlete_id = _require_athlete_id()
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        metrics = get_latest_metrics(conn, athlete_id)
+
+    if metrics is None:
+        click.echo("Aucune métrique saisie. Utilise `strava-connect athlete set ...`")
+        return
+
+    click.echo(f"Dernière entrée ({metrics.recorded_at.isoformat()}) :")
+    click.echo(f"  poids     : {metrics.weight_kg} kg")
+    click.echo(f"  FTP       : {metrics.ftp_watts} W")
+    click.echo(f"  FC max    : {metrics.fc_max} bpm")
+    click.echo(f"  FC repos  : {metrics.fc_repos} bpm")
+    click.echo(f"  VMA       : {metrics.vma_kmh} km/h")
+    if metrics.note:
+        click.echo(f"  note      : {metrics.note}")
+
+
+@athlete.command("history")
+@click.option("--limit", type=int, default=20, show_default=True, help="Max lignes affichées")
+def athlete_history(limit: int) -> None:
+    """Affiche l'historique des métriques (chronologique inverse)."""
+    athlete_id = _require_athlete_id()
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        history = get_metrics_history(conn, athlete_id, limit=limit)
+
+    if not history:
+        click.echo("Aucune métrique enregistrée.")
+        return
+
+    click.echo(f"{'Date':<28} {'poids':>7} {'FTP':>5} {'FCmax':>6} {'FCrep':>6} {'VMA':>6}  note")
+    click.echo("-" * 80)
+    for m in history:
+        click.echo(
+            f"{m.recorded_at.isoformat():<28} "
+            f"{(str(m.weight_kg) if m.weight_kg is not None else '-'):>7} "
+            f"{(str(m.ftp_watts) if m.ftp_watts is not None else '-'):>5} "
+            f"{(str(m.fc_max) if m.fc_max is not None else '-'):>6} "
+            f"{(str(m.fc_repos) if m.fc_repos is not None else '-'):>6} "
+            f"{(str(m.vma_kmh) if m.vma_kmh is not None else '-'):>6}  "
+            f"{m.note or ''}"
+        )

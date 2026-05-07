@@ -6,13 +6,23 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class Athlete:
+    """Référence athlète (FK des activités). Les métriques d'entraînement sont
+    historisées dans `AthleteMetrics`."""
+
     id: int
+
+
+@dataclass(frozen=True)
+class AthleteMetrics:
+    id: int
+    athlete_id: int
+    recorded_at: datetime
     weight_kg: float | None = None
     ftp_watts: int | None = None
     fc_max: int | None = None
     fc_repos: int | None = None
     vma_kmh: float | None = None
-    updated_at: datetime | None = None
+    note: str | None = None
 
 
 @dataclass(frozen=True)

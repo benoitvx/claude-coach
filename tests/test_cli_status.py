@@ -8,25 +8,22 @@ from pytest import MonkeyPatch
 
 from strava_connect.auth import save_tokens
 from strava_connect.cli import main
-from strava_connect.db import connect, migrate, upsert_athlete
-from strava_connect.models import Athlete, Tokens
+from strava_connect.db import connect, insert_athlete_metrics, migrate
+from strava_connect.models import Tokens
 
 
 def _seed_db_with_athlete(db_path: Path, athlete_id: int = 99) -> None:
     conn = connect(db_path)
     try:
         migrate(conn)
-        upsert_athlete(
+        insert_athlete_metrics(
             conn,
-            Athlete(
-                id=athlete_id,
-                weight_kg=72.0,
-                ftp_watts=240,
-                fc_max=190,
-                fc_repos=48,
-                vma_kmh=17.0,
-                updated_at=datetime(2026, 5, 1, tzinfo=UTC),
-            ),
+            athlete_id,
+            weight_kg=72.0,
+            ftp_watts=240,
+            fc_max=190,
+            fc_repos=48,
+            vma_kmh=17.0,
         )
     finally:
         conn.close()

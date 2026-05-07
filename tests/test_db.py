@@ -11,9 +11,13 @@ from strava_connect.db import (
     finish_sync,
     get_athlete,
     get_last_sync,
+    get_latest_metrics,
+    get_metrics_history,
     get_schema_version,
     has_complete_activity,
+    insert_athlete_metrics,
     insert_full_activity,
+    metrics_values_equal,
     migrate,
     start_sync,
     stats_by_sport,
@@ -54,32 +58,16 @@ def test_migrate_idempotent(db_path: Path) -> None:
 
 
 def test_upsert_athlete_then_get(db_conn: sqlite3.Connection) -> None:
-    now = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
-    a = Athlete(
-        id=42,
-        weight_kg=72.5,
-        ftp_watts=250,
-        fc_max=190,
-        fc_repos=48,
-        vma_kmh=17.5,
-        updated_at=now,
-    )
-    upsert_athlete(db_conn, a)
+    upsert_athlete(db_conn, Athlete(id=42))
     got = get_athlete(db_conn, 42)
     assert got is not None
     assert got.id == 42
-    assert got.weight_kg == 72.5
-    assert got.ftp_watts == 250
-    assert got.updated_at == now
 
-    # Update existing
-    updated = Athlete(id=42, weight_kg=73.0, ftp_watts=255)
-    upsert_athlete(db_conn, updated)
+    # Réappel idempotent (INSERT OR IGNORE)
+    upsert_athlete(db_conn, Athlete(id=42))
     got2 = get_athlete(db_conn, 42)
     assert got2 is not None
-    assert got2.weight_kg == 73.0
-    assert got2.ftp_watts == 255
-    assert got2.fc_max is None  # was overwritten
+    assert got2.id == 42
 
 
 def test_get_athlete_missing_returns_none(db_conn: sqlite3.Connection) -> None:
@@ -237,3 +225,136 @@ def test_finish_sync_with_error(db_conn: sqlite3.Connection) -> None:
     assert last is not None
     assert last.status == "error"
     assert last.error_message == "boom"
+
+
+# --- Lot 4 : athlete_metrics + migration 002 -------------------------------
+
+
+def test_migration_002_creates_metrics_table_and_drops_columns(db_path: Path) -> None:
+    conn = connect(db_path)
+    migrate(conn)
+    tables = _table_names(conn)
+    assert "athlete_metrics" in tables
+
+    # Les colonnes obsolètes doivent avoir disparu de athletes.
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(athletes)").fetchall()}
+    assert cols == {"id"}
+
+
+def test_migration_002_preserves_existing_data(db_path: Path) -> None:
+    """Pré-pose une row dans athletes (schéma migration 1) puis applique la 2."""
+    conn = connect(db_path)
+    # Applique seulement la migration 1 manuellement.
+    from strava_connect.db import MIGRATIONS as _MIGRATIONS
+    from strava_connect.db import _set_schema_version
+
+    _MIGRATIONS[0](conn)
+    _set_schema_version(conn, 1)
+    conn.execute(
+        "INSERT INTO athletes (id, weight_kg, ftp_watts, updated_at) VALUES (?, ?, ?, ?)",
+        (42, 70.0, 250, "2026-01-01T00:00:00+00:00"),
+    )
+    conn.commit()
+
+    # Maintenant migrate va appliquer la 2.
+    migrate(conn)
+
+    row = conn.execute(
+        "SELECT athlete_id, weight_kg, ftp_watts FROM athlete_metrics WHERE athlete_id = ?",
+        (42,),
+    ).fetchone()
+    assert row is not None
+    assert row["weight_kg"] == 70.0
+    assert row["ftp_watts"] == 250
+
+
+def test_insert_athlete_metrics_basic_then_get(db_conn: sqlite3.Connection) -> None:
+    upsert_athlete(db_conn, Athlete(id=42))
+    inserted = insert_athlete_metrics(
+        db_conn,
+        42,
+        weight_kg=72.5,
+        ftp_watts=260,
+        fc_max=190,
+        fc_repos=48,
+        vma_kmh=17.5,
+        note="initial",
+    )
+    assert inserted.athlete_id == 42
+    assert inserted.weight_kg == 72.5
+    assert inserted.note == "initial"
+
+    latest = get_latest_metrics(db_conn, 42)
+    assert latest is not None
+    assert latest.id == inserted.id
+    assert latest.ftp_watts == 260
+
+
+def test_insert_athlete_metrics_creates_athlete_if_missing(db_conn: sqlite3.Connection) -> None:
+    # athletes vide initialement
+    inserted = insert_athlete_metrics(db_conn, 99, weight_kg=70.0)
+    assert inserted.athlete_id == 99
+    # FK satisfaite : athletes contient bien l'id
+    row = db_conn.execute("SELECT id FROM athletes WHERE id = 99").fetchone()
+    assert row is not None
+
+
+def test_insert_athlete_metrics_merges_missing_fields(db_conn: sqlite3.Connection) -> None:
+    insert_athlete_metrics(
+        db_conn, 42, weight_kg=70.0, ftp_watts=250, fc_max=190, fc_repos=48, vma_kmh=17.0
+    )
+    # 2e insertion : on ne fournit que le poids → les autres sont repris.
+    second = insert_athlete_metrics(db_conn, 42, weight_kg=71.0)
+    assert second.weight_kg == 71.0
+    assert second.ftp_watts == 250
+    assert second.fc_max == 190
+    assert second.vma_kmh == 17.0
+
+
+def test_get_metrics_history_ordering(db_conn: sqlite3.Connection) -> None:
+    insert_athlete_metrics(
+        db_conn,
+        42,
+        weight_kg=70.0,
+        recorded_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    insert_athlete_metrics(
+        db_conn,
+        42,
+        weight_kg=71.0,
+        recorded_at=datetime(2026, 2, 1, tzinfo=UTC),
+    )
+    insert_athlete_metrics(
+        db_conn,
+        42,
+        weight_kg=72.0,
+        recorded_at=datetime(2026, 3, 1, tzinfo=UTC),
+    )
+
+    history = get_metrics_history(db_conn, 42)
+    assert [m.weight_kg for m in history] == [72.0, 71.0, 70.0]
+
+
+def test_get_metrics_history_limit(db_conn: sqlite3.Connection) -> None:
+    for i in range(5):
+        insert_athlete_metrics(
+            db_conn,
+            42,
+            weight_kg=70.0 + i,
+            recorded_at=datetime(2026, 1, 1 + i, tzinfo=UTC),
+        )
+    history = get_metrics_history(db_conn, 42, limit=2)
+    assert len(history) == 2
+
+
+def test_get_latest_metrics_empty(db_conn: sqlite3.Connection) -> None:
+    assert get_latest_metrics(db_conn, 42) is None
+
+
+def test_metrics_values_equal_handles_none() -> None:
+    assert (
+        metrics_values_equal(
+            None, weight_kg=None, ftp_watts=None, fc_max=None, fc_repos=None, vma_kmh=None
+        )
+        is False
+    )
