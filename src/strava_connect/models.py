@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 
 @dataclass(frozen=True)
@@ -129,3 +129,50 @@ class RateLimitState:
     usage_daily: int = 0
     limit_daily: int = 1000
     last_seen: datetime | None = None
+
+
+# --- Lot 5a : objectifs et planification -----------------------------------
+
+
+@dataclass(frozen=True)
+class Goal:
+    id: int
+    name: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    discipline: str | None = None
+    target_date: date | None = None
+    description: str | None = None
+    success_criteria: str | None = None
+
+
+@dataclass(frozen=True)
+class TrainingPlan:
+    id: int
+    name: str
+    start_date: date
+    end_date: date
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    goal_id: int | None = None
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
+class PlannedSession:
+    id: int
+    training_plan_id: int
+    planned_date: date
+    sport_type: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    session_type: str | None = None
+    target_duration_s: int | None = None
+    target_distance_m: float | None = None
+    target_intensity: str | None = None
+    description: str | None = None
+    actual_activity_id: int | None = None
+    notes: str | None = None

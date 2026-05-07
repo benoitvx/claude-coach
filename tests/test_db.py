@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
+
+import pytest
 
 from strava_connect.db import (
     MIGRATIONS,
@@ -10,17 +12,28 @@ from strava_connect.db import (
     count_activities,
     finish_sync,
     get_athlete,
+    get_goal,
     get_last_sync,
     get_latest_metrics,
     get_metrics_history,
+    get_planned_session,
     get_schema_version,
+    get_training_plan,
     has_complete_activity,
     insert_athlete_metrics,
     insert_full_activity,
+    insert_goal,
+    insert_planned_session,
+    insert_training_plan,
+    list_goals,
+    list_planned_sessions,
+    list_training_plans,
     metrics_values_equal,
     migrate,
     start_sync,
     stats_by_sport,
+    update_goal_status,
+    update_planned_session_status,
     upsert_athlete,
 )
 from strava_connect.models import Activity, Athlete, Lap, Stream, Zone
@@ -358,3 +371,194 @@ def test_metrics_values_equal_handles_none() -> None:
         )
         is False
     )
+
+
+# --- Lot 5a : objectifs / plans / séances planifiées -----------------------
+
+
+def test_migration_003_creates_goal_and_plan_tables(db_path: Path) -> None:
+    conn = connect(db_path)
+    migrate(conn)
+    tables = _table_names(conn)
+    assert {"goals", "training_plans", "planned_sessions"}.issubset(tables)
+
+
+def test_insert_goal_then_get_roundtrip(db_conn: sqlite3.Connection) -> None:
+    g = insert_goal(
+        db_conn,
+        name="Swim&Run Sept 2026",
+        discipline="swim_run",
+        target_date=date(2026, 9, 15),
+        description="13.5km run + 3.5km nage",
+        success_criteria="terminer en moins de 2h",
+    )
+    assert g.id > 0
+    assert g.status == "active"
+    assert g.target_date == date(2026, 9, 15)
+
+    fetched = get_goal(db_conn, g.id)
+    assert fetched is not None
+    assert fetched.name == "Swim&Run Sept 2026"
+    assert fetched.discipline == "swim_run"
+    assert fetched.success_criteria == "terminer en moins de 2h"
+
+
+def test_list_goals_filters_by_status(db_conn: sqlite3.Connection) -> None:
+    insert_goal(db_conn, name="Goal A")
+    g_b = insert_goal(db_conn, name="Goal B")
+    update_goal_status(db_conn, g_b.id, "completed")
+
+    actives = list_goals(db_conn, status="active")
+    assert [g.name for g in actives] == ["Goal A"]
+    completed = list_goals(db_conn, status="completed")
+    assert [g.name for g in completed] == ["Goal B"]
+
+
+def test_list_goals_orders_by_target_date(db_conn: sqlite3.Connection) -> None:
+    insert_goal(db_conn, name="Late", target_date=date(2027, 6, 1))
+    insert_goal(db_conn, name="Early", target_date=date(2026, 9, 15))
+    insert_goal(db_conn, name="Undated")  # NULL target_date → fin de liste
+
+    names = [g.name for g in list_goals(db_conn)]
+    assert names == ["Early", "Late", "Undated"]
+
+
+def test_update_goal_status_rejects_invalid_value(db_conn: sqlite3.Connection) -> None:
+    g = insert_goal(db_conn, name="X")
+    with pytest.raises(ValueError):
+        update_goal_status(db_conn, g.id, "bogus")
+
+
+def test_insert_training_plan_with_and_without_goal(db_conn: sqlite3.Connection) -> None:
+    g = insert_goal(db_conn, name="Goal", target_date=date(2026, 9, 15))
+    p1 = insert_training_plan(
+        db_conn,
+        name="Prépa",
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 9, 15),
+        goal_id=g.id,
+    )
+    assert p1.goal_id == g.id
+
+    p2 = insert_training_plan(
+        db_conn, name="Rebuild", start_date=date(2026, 1, 1), end_date=date(2026, 3, 1)
+    )
+    assert p2.goal_id is None
+
+    plans_for_goal = list_training_plans(db_conn, goal_id=g.id)
+    assert [p.id for p in plans_for_goal] == [p1.id]
+
+
+def test_get_training_plan_missing(db_conn: sqlite3.Connection) -> None:
+    assert get_training_plan(db_conn, 99999) is None
+
+
+def test_planned_sessions_cascade_on_plan_delete(db_conn: sqlite3.Connection) -> None:
+    p = insert_training_plan(
+        db_conn, name="P", start_date=date(2026, 1, 1), end_date=date(2026, 2, 1)
+    )
+    insert_planned_session(
+        db_conn,
+        training_plan_id=p.id,
+        planned_date=date(2026, 1, 5),
+        sport_type="Run",
+    )
+    insert_planned_session(
+        db_conn,
+        training_plan_id=p.id,
+        planned_date=date(2026, 1, 7),
+        sport_type="Ride",
+    )
+    assert len(list_planned_sessions(db_conn, training_plan_id=p.id)) == 2
+
+    with db_conn:
+        db_conn.execute("DELETE FROM training_plans WHERE id = ?", (p.id,))
+    # ON DELETE CASCADE → sessions supprimées avec le plan.
+    assert len(list_planned_sessions(db_conn, training_plan_id=p.id)) == 0
+
+
+def test_planned_session_full_roundtrip(db_conn: sqlite3.Connection) -> None:
+    p = insert_training_plan(
+        db_conn, name="P", start_date=date(2026, 1, 1), end_date=date(2026, 2, 1)
+    )
+    s = insert_planned_session(
+        db_conn,
+        training_plan_id=p.id,
+        planned_date=date(2026, 1, 5),
+        sport_type="Run",
+        session_type="intervals",
+        target_duration_s=3600,
+        target_distance_m=10000.0,
+        target_intensity="vo2max",
+        description="5×3' VMA r=2'",
+    )
+    fetched = get_planned_session(db_conn, s.id)
+    assert fetched is not None
+    assert fetched.sport_type == "Run"
+    assert fetched.session_type == "intervals"
+    assert fetched.target_duration_s == 3600
+    assert fetched.target_intensity == "vo2max"
+    assert fetched.actual_activity_id is None  # rempli en 5b
+
+
+def test_update_planned_session_status(db_conn: sqlite3.Connection) -> None:
+    p = insert_training_plan(
+        db_conn, name="P", start_date=date(2026, 1, 1), end_date=date(2026, 2, 1)
+    )
+    s = insert_planned_session(
+        db_conn,
+        training_plan_id=p.id,
+        planned_date=date(2026, 1, 5),
+        sport_type="Run",
+    )
+    updated = update_planned_session_status(db_conn, s.id, "done")
+    assert updated.status == "done"
+    assert updated.updated_at >= updated.created_at
+
+    with pytest.raises(ValueError):
+        update_planned_session_status(db_conn, s.id, "bogus")
+
+
+def test_planned_session_actual_activity_set_null_on_activity_delete(
+    db_conn: sqlite3.Connection,
+) -> None:
+    """Si l'activité matchée disparaît, la séance reste mais actual_activity_id repasse NULL."""
+    upsert_athlete(db_conn, Athlete(id=42))
+    insert_full_activity(
+        db_conn,
+        Activity(id=2001, athlete_id=42, sport_type="Run", raw_json="{}"),
+        [],
+        [],
+        [],
+    )
+    p = insert_training_plan(
+        db_conn, name="P", start_date=date(2026, 1, 1), end_date=date(2026, 2, 1)
+    )
+    s = insert_planned_session(
+        db_conn,
+        training_plan_id=p.id,
+        planned_date=date(2026, 1, 5),
+        sport_type="Run",
+    )
+    # Pré-remplit le lien manuellement (simule ce que 5b fera).
+    with db_conn:
+        db_conn.execute(
+            "UPDATE planned_sessions SET actual_activity_id = ? WHERE id = ?",
+            (2001, s.id),
+        )
+    # Suppression de l'activité → FK ON DELETE SET NULL.
+    with db_conn:
+        db_conn.execute("DELETE FROM activities WHERE id = ?", (2001,))
+    refreshed = get_planned_session(db_conn, s.id)
+    assert refreshed is not None
+    assert refreshed.actual_activity_id is None
+    # La séance elle-même n'a pas été supprimée.
+    assert refreshed.id == s.id
+
+
+def test_insert_goal_uses_utc_timestamps(db_conn: sqlite3.Connection) -> None:
+    before = datetime.now(tz=UTC)
+    g = insert_goal(db_conn, name="X")
+    after = datetime.now(tz=UTC)
+    assert before <= g.created_at <= after
+    assert g.created_at == g.updated_at  # à la création

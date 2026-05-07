@@ -3,10 +3,21 @@ from __future__ import annotations
 import os
 import sqlite3
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
-from strava_connect.models import Activity, Athlete, AthleteMetrics, Lap, Stream, SyncLog, Zone
+from strava_connect.models import (
+    Activity,
+    Athlete,
+    AthleteMetrics,
+    Goal,
+    Lap,
+    PlannedSession,
+    Stream,
+    SyncLog,
+    TrainingPlan,
+    Zone,
+)
 
 DEFAULT_DB_PATH = Path("data/strava.db")
 
@@ -169,9 +180,62 @@ def _migration_002_athlete_metrics(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migration_003_goals_training_plans(conn: sqlite3.Connection) -> None:
+    """Tables d'objectifs sportifs, plans d'entraînement et séances planifiées (Lot 5a)."""
+    conn.executescript("""
+        CREATE TABLE goals (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            name              TEXT NOT NULL,
+            discipline        TEXT,
+            target_date       TEXT,
+            description       TEXT,
+            success_criteria  TEXT,
+            status            TEXT NOT NULL DEFAULT 'active',
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL
+        );
+        CREATE INDEX idx_goals_target_date ON goals(target_date);
+
+        CREATE TABLE training_plans (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            goal_id      INTEGER REFERENCES goals(id) ON DELETE SET NULL,
+            name         TEXT NOT NULL,
+            start_date   TEXT NOT NULL,
+            end_date     TEXT NOT NULL,
+            status       TEXT NOT NULL DEFAULT 'active',
+            notes        TEXT,
+            created_at   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL
+        );
+        CREATE INDEX idx_training_plans_goal ON training_plans(goal_id);
+
+        CREATE TABLE planned_sessions (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            training_plan_id    INTEGER NOT NULL REFERENCES training_plans(id) ON DELETE CASCADE,
+            planned_date        TEXT NOT NULL,
+            sport_type          TEXT NOT NULL,
+            session_type        TEXT,
+            target_duration_s   INTEGER,
+            target_distance_m   REAL,
+            target_intensity    TEXT,
+            description         TEXT,
+            actual_activity_id  INTEGER REFERENCES activities(id) ON DELETE SET NULL,
+            status              TEXT NOT NULL DEFAULT 'planned',
+            notes               TEXT,
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL
+        );
+        CREATE INDEX idx_planned_sessions_plan_date
+            ON planned_sessions(training_plan_id, planned_date);
+        CREATE INDEX idx_planned_sessions_actual_activity
+            ON planned_sessions(actual_activity_id);
+    """)
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _migration_001_initial_schema,
     _migration_002_athlete_metrics,
+    _migration_003_goals_training_plans,
 ]
 
 
@@ -503,3 +567,299 @@ def metrics_values_equal(
         and a.fc_repos == fc_repos
         and a.vma_kmh == vma_kmh
     )
+
+
+# --- Lot 5a : objectifs / plans / séances planifiées -----------------------
+
+GOAL_STATUSES = ("active", "completed", "abandoned")
+PLAN_STATUSES = ("active", "completed", "paused")
+SESSION_STATUSES = ("planned", "done", "skipped", "missed")
+
+
+def _now_iso() -> str:
+    return datetime.now(tz=UTC).isoformat()
+
+
+def _opt_date(value: str | None) -> date | None:
+    return date.fromisoformat(value) if value else None
+
+
+def _row_to_goal(row: sqlite3.Row) -> Goal:
+    return Goal(
+        id=row["id"],
+        name=row["name"],
+        discipline=row["discipline"],
+        target_date=_opt_date(row["target_date"]),
+        description=row["description"],
+        success_criteria=row["success_criteria"],
+        status=row["status"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        updated_at=datetime.fromisoformat(row["updated_at"]),
+    )
+
+
+def _row_to_training_plan(row: sqlite3.Row) -> TrainingPlan:
+    return TrainingPlan(
+        id=row["id"],
+        goal_id=row["goal_id"],
+        name=row["name"],
+        start_date=date.fromisoformat(row["start_date"]),
+        end_date=date.fromisoformat(row["end_date"]),
+        status=row["status"],
+        notes=row["notes"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        updated_at=datetime.fromisoformat(row["updated_at"]),
+    )
+
+
+def _row_to_planned_session(row: sqlite3.Row) -> PlannedSession:
+    return PlannedSession(
+        id=row["id"],
+        training_plan_id=row["training_plan_id"],
+        planned_date=date.fromisoformat(row["planned_date"]),
+        sport_type=row["sport_type"],
+        session_type=row["session_type"],
+        target_duration_s=row["target_duration_s"],
+        target_distance_m=row["target_distance_m"],
+        target_intensity=row["target_intensity"],
+        description=row["description"],
+        actual_activity_id=row["actual_activity_id"],
+        status=row["status"],
+        notes=row["notes"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        updated_at=datetime.fromisoformat(row["updated_at"]),
+    )
+
+
+_GOAL_COLS = (
+    "id, name, discipline, target_date, description, success_criteria, "
+    "status, created_at, updated_at"
+)
+_PLAN_COLS = "id, goal_id, name, start_date, end_date, status, notes, created_at, updated_at"
+_SESSION_COLS = (
+    "id, training_plan_id, planned_date, sport_type, session_type, "
+    "target_duration_s, target_distance_m, target_intensity, description, "
+    "actual_activity_id, status, notes, created_at, updated_at"
+)
+
+
+def insert_goal(
+    conn: sqlite3.Connection,
+    *,
+    name: str,
+    discipline: str | None = None,
+    target_date: date | None = None,
+    description: str | None = None,
+    success_criteria: str | None = None,
+    status: str = "active",
+) -> Goal:
+    now = _now_iso()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO goals (name, discipline, target_date, description, "
+            "success_criteria, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                name,
+                discipline,
+                target_date.isoformat() if target_date else None,
+                description,
+                success_criteria,
+                status,
+                now,
+                now,
+            ),
+        )
+    row = conn.execute(f"SELECT {_GOAL_COLS} FROM goals WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return _row_to_goal(row)
+
+
+def get_goal(conn: sqlite3.Connection, goal_id: int) -> Goal | None:
+    row = conn.execute(f"SELECT {_GOAL_COLS} FROM goals WHERE id = ?", (goal_id,)).fetchone()
+    return _row_to_goal(row) if row else None
+
+
+def list_goals(conn: sqlite3.Connection, *, status: str | None = None) -> list[Goal]:
+    sql = f"SELECT {_GOAL_COLS} FROM goals"
+    params: tuple[object, ...] = ()
+    if status is not None:
+        sql += " WHERE status = ?"
+        params = (status,)
+    sql += " ORDER BY COALESCE(target_date, '9999-99-99') ASC, id ASC"
+    rows = conn.execute(sql, params).fetchall()
+    return [_row_to_goal(r) for r in rows]
+
+
+def update_goal_status(conn: sqlite3.Connection, goal_id: int, status: str) -> Goal:
+    if status not in GOAL_STATUSES:
+        raise ValueError(f"Statut invalide '{status}', attendu parmi {GOAL_STATUSES}")
+    with conn:
+        cur = conn.execute(
+            "UPDATE goals SET status = ?, updated_at = ? WHERE id = ?",
+            (status, _now_iso(), goal_id),
+        )
+    if cur.rowcount == 0:
+        raise ValueError(f"Aucun objectif #{goal_id}")
+    updated = get_goal(conn, goal_id)
+    assert updated is not None
+    return updated
+
+
+def insert_training_plan(
+    conn: sqlite3.Connection,
+    *,
+    name: str,
+    start_date: date,
+    end_date: date,
+    goal_id: int | None = None,
+    notes: str | None = None,
+    status: str = "active",
+) -> TrainingPlan:
+    now = _now_iso()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO training_plans (goal_id, name, start_date, end_date, "
+            "status, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                goal_id,
+                name,
+                start_date.isoformat(),
+                end_date.isoformat(),
+                status,
+                notes,
+                now,
+                now,
+            ),
+        )
+    row = conn.execute(
+        f"SELECT {_PLAN_COLS} FROM training_plans WHERE id = ?", (cur.lastrowid,)
+    ).fetchone()
+    return _row_to_training_plan(row)
+
+
+def get_training_plan(conn: sqlite3.Connection, plan_id: int) -> TrainingPlan | None:
+    row = conn.execute(
+        f"SELECT {_PLAN_COLS} FROM training_plans WHERE id = ?", (plan_id,)
+    ).fetchone()
+    return _row_to_training_plan(row) if row else None
+
+
+def list_training_plans(
+    conn: sqlite3.Connection,
+    *,
+    goal_id: int | None = None,
+    status: str | None = None,
+) -> list[TrainingPlan]:
+    clauses: list[str] = []
+    params: list[object] = []
+    if goal_id is not None:
+        clauses.append("goal_id = ?")
+        params.append(goal_id)
+    if status is not None:
+        clauses.append("status = ?")
+        params.append(status)
+    sql = f"SELECT {_PLAN_COLS} FROM training_plans"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY start_date ASC, id ASC"
+    rows = conn.execute(sql, tuple(params)).fetchall()
+    return [_row_to_training_plan(r) for r in rows]
+
+
+def update_training_plan_status(
+    conn: sqlite3.Connection, plan_id: int, status: str
+) -> TrainingPlan:
+    if status not in PLAN_STATUSES:
+        raise ValueError(f"Statut invalide '{status}', attendu parmi {PLAN_STATUSES}")
+    with conn:
+        cur = conn.execute(
+            "UPDATE training_plans SET status = ?, updated_at = ? WHERE id = ?",
+            (status, _now_iso(), plan_id),
+        )
+    if cur.rowcount == 0:
+        raise ValueError(f"Aucun plan #{plan_id}")
+    updated = get_training_plan(conn, plan_id)
+    assert updated is not None
+    return updated
+
+
+def insert_planned_session(
+    conn: sqlite3.Connection,
+    *,
+    training_plan_id: int,
+    planned_date: date,
+    sport_type: str,
+    session_type: str | None = None,
+    target_duration_s: int | None = None,
+    target_distance_m: float | None = None,
+    target_intensity: str | None = None,
+    description: str | None = None,
+    notes: str | None = None,
+    status: str = "planned",
+) -> PlannedSession:
+    now = _now_iso()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO planned_sessions (training_plan_id, planned_date, sport_type, "
+            "session_type, target_duration_s, target_distance_m, target_intensity, "
+            "description, status, notes, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                training_plan_id,
+                planned_date.isoformat(),
+                sport_type,
+                session_type,
+                target_duration_s,
+                target_distance_m,
+                target_intensity,
+                description,
+                status,
+                notes,
+                now,
+                now,
+            ),
+        )
+    row = conn.execute(
+        f"SELECT {_SESSION_COLS} FROM planned_sessions WHERE id = ?", (cur.lastrowid,)
+    ).fetchone()
+    return _row_to_planned_session(row)
+
+
+def get_planned_session(conn: sqlite3.Connection, session_id: int) -> PlannedSession | None:
+    row = conn.execute(
+        f"SELECT {_SESSION_COLS} FROM planned_sessions WHERE id = ?", (session_id,)
+    ).fetchone()
+    return _row_to_planned_session(row) if row else None
+
+
+def list_planned_sessions(
+    conn: sqlite3.Connection,
+    *,
+    training_plan_id: int,
+    status: str | None = None,
+) -> list[PlannedSession]:
+    sql = f"SELECT {_SESSION_COLS} FROM planned_sessions WHERE training_plan_id = ?"
+    params: tuple[object, ...] = (training_plan_id,)
+    if status is not None:
+        sql += " AND status = ?"
+        params = (training_plan_id, status)
+    sql += " ORDER BY planned_date ASC, id ASC"
+    rows = conn.execute(sql, params).fetchall()
+    return [_row_to_planned_session(r) for r in rows]
+
+
+def update_planned_session_status(
+    conn: sqlite3.Connection, session_id: int, status: str
+) -> PlannedSession:
+    if status not in SESSION_STATUSES:
+        raise ValueError(f"Statut invalide '{status}', attendu parmi {SESSION_STATUSES}")
+    with conn:
+        cur = conn.execute(
+            "UPDATE planned_sessions SET status = ?, updated_at = ? WHERE id = ?",
+            (status, _now_iso(), session_id),
+        )
+    if cur.rowcount == 0:
+        raise ValueError(f"Aucune séance #{session_id}")
+    updated = get_planned_session(conn, session_id)
+    assert updated is not None
+    return updated

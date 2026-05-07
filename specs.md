@@ -293,22 +293,119 @@ Pas de tests contre la vraie API Strava : consomme du rate limit, lent, flaky, n
 
 ## 9. Vision future (hors scope v1)
 
-### Agent coach IA (lot 3)
+### Agent coach IA (lot 5)
 
-L'agent Claude Code accède directement à la DB SQLite pour :
-- Analyser l'historique d'entraînement (charge, progression, patterns)
-- Prendre en compte les données athlète (poids, FTP, FCmax, VMA)
-- Générer des plans séance par séance vers des objectifs définis :
-  - Swim & Run (13.5km run + 3.5km nage) — septembre 2026
-  - Trail 50km / 2000m D+ — octobre 2026
-  - Ironman 70.3 — printemps 2027
-- Comparer séances réalisées vs planifiées pour ajuster le plan
-- Stocker les plans et objectifs dans des tables dédiées (à spécifier en lot 3)
+L'agent Claude Code accède à la DB via **commandes CLI lues en Bash** (pas MCP).
+Hébergé en **subagent Claude Code** dans `.claude/agents/` (pas de service Python
+autonome). L'agent :
+- Analyse l'historique d'entraînement (charge, progression, patterns)
+- Prend en compte les données athlète (poids, FTP, FCmax, VMA)
+- Génère des plans séance par séance vers les objectifs définis (cf. §10)
+- Compare séances réalisées vs planifiées pour ajuster le plan
 
-### Export workouts (lot 4)
+Découpage en sous-lots :
+- **5a** : modèle de données objectifs/plans/séances ✅ (cf. §10)
+- **5b** : matching planifié vs réalisé (date + sport_type)
+- **5c** : commandes CLI orientées agent (queries riches, sortie JSON)
+- **5d** : subagent + system prompt avec règles d'entraînement
+
+### Export workouts (lot 6)
 
 Exporter les séances planifiées par l'agent vers :
 - **Suunto** : fichiers `.fit` ou via Suunto API
 - **Zwift** : fichiers `.zwo` (format XML natif Zwift)
 
 Permettre à l'utilisateur de suivre le programme directement sur sa montre ou dans Zwift.
+
+## 10. Modèle de données — objectifs et planification
+
+<!-- EN COURS: lot 5 -->
+
+Migration 003 introduit trois tables qui supportent la planification d'entraînement
+et serviront de base à l'agent coach (lot 5c/5d). Le matching automatique
+`planned_sessions.actual_activity_id` ↔ `activities.id` est laissé pour le lot 5b
+(la colonne existe dès maintenant pour éviter une re-migration).
+
+### Table `goals`
+
+Objectifs sportifs (courses, événements cibles).
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| id | INTEGER PK | |
+| name | TEXT NOT NULL | Ex: "Swim&Run Sept 2026" |
+| discipline | TEXT | run / swim_run / trail / triathlon / ride / swim / other |
+| target_date | TEXT | ISO date (YYYY-MM-DD) |
+| description | TEXT | Description libre |
+| success_criteria | TEXT | Critères de réussite |
+| status | TEXT NOT NULL | active / completed / abandoned (default 'active') |
+| created_at | TEXT NOT NULL | ISO 8601 UTC |
+| updated_at | TEXT NOT NULL | ISO 8601 UTC |
+
+Index : `idx_goals_target_date(target_date)`.
+
+### Table `training_plans`
+
+Plan d'entraînement, optionnellement rattaché à un goal.
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| id | INTEGER PK | |
+| goal_id | INTEGER FK → goals(id) ON DELETE SET NULL | nullable (rebuild block sans event) |
+| name | TEXT NOT NULL | |
+| start_date | TEXT NOT NULL | ISO date |
+| end_date | TEXT NOT NULL | ISO date |
+| status | TEXT NOT NULL | active / completed / paused (default 'active') |
+| notes | TEXT | |
+| created_at | TEXT NOT NULL | |
+| updated_at | TEXT NOT NULL | |
+
+Index : `idx_training_plans_goal(goal_id)`.
+
+### Table `planned_sessions`
+
+Séances planifiées par l'agent (ou saisies manuellement).
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| id | INTEGER PK | |
+| training_plan_id | INTEGER NOT NULL FK → training_plans(id) ON DELETE CASCADE | |
+| planned_date | TEXT NOT NULL | ISO date locale |
+| sport_type | TEXT NOT NULL | Conforme à `activities.sport_type` (Run, Ride, Swim, TrailRun, ...) |
+| session_type | TEXT | endurance / threshold / intervals / long / race / recovery / renfo |
+| target_duration_s | INTEGER | Durée cible en secondes |
+| target_distance_m | REAL | Distance cible en mètres |
+| target_intensity | TEXT | easy / moderate / threshold / vo2max / race |
+| description | TEXT | Détail séance (ex "10' éch + 5×3' VMA r=2' + 10' RAC") |
+| actual_activity_id | INTEGER FK → activities(id) ON DELETE SET NULL | Rempli par le matching (lot 5b) |
+| status | TEXT NOT NULL | planned / done / skipped / missed (default 'planned') |
+| notes | TEXT | |
+| created_at | TEXT NOT NULL | |
+| updated_at | TEXT NOT NULL | |
+
+Index : `idx_planned_sessions_plan_date(training_plan_id, planned_date)`,
+`idx_planned_sessions_actual_activity(actual_activity_id)`.
+
+### Commandes CLI (lot 5a)
+
+```bash
+# Objectifs
+strava-connect goal add --name <NAME> [--target-date YYYY-MM-DD] [--discipline ...] [--description ...] [--success-criteria ...]
+strava-connect goal list [--status active|completed|abandoned]
+strava-connect goal show <ID>
+strava-connect goal complete <ID>
+
+# Plans d'entraînement
+strava-connect plan add --name <NAME> --start YYYY-MM-DD --end YYYY-MM-DD [--goal-id <ID>] [--notes ...]
+strava-connect plan list [--goal-id <ID>] [--status ...]
+strava-connect plan show <ID>          # affiche plan + ses planned_sessions
+
+# Séances planifiées (sous-groupe `plan session`)
+strava-connect plan session add --plan-id <ID> --date YYYY-MM-DD --sport <SPORT> [--session-type ...] [--duration <S>] [--distance <M>] [--intensity ...] [--description ...]
+strava-connect plan session list --plan-id <ID> [--status ...]
+strava-connect plan session done <ID>  # marque manuellement réalisée (matching auto en 5b)
+```
+
+Validation des enums : `click.Choice(...)` côté CLI seulement, pas de CHECK SQL
+(cohérent avec le reste du projet). Les contraintes Python sont dans
+`db.GOAL_STATUSES`, `db.PLAN_STATUSES`, `db.SESSION_STATUSES`.

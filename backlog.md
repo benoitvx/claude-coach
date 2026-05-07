@@ -50,13 +50,17 @@
 
 ## Lot 5 — Agent coach IA
 
-> À spécifier en détail quand les lots 1-4 sont terminés. Grandes lignes :
+Découpé en sous-lots après planification :
+- **5a** : modèle de données objectifs/plans/séances (5.1, 5.2) ✅
+- **5b** : matching planifié vs réalisé (5.3)
+- **5c** : commandes CLI orientées agent (5.4) — interface = CLI lue via Bash
+- **5d** : subagent coach dans `.claude/agents/` + system prompt (5.5)
 
-- [ ] **5.1** Définir le modèle de données pour les objectifs (table `goals` : type, date cible, description, critères de réussite)
-- [ ] **5.2** Définir le modèle de données pour les plans d'entraînement (tables `training_plans`, `planned_sessions`)
+- [x] **5.1** Définir le modèle de données pour les objectifs (table `goals` : type, date cible, description, critères de réussite) _(Lot 5a, migration 003)_
+- [x] **5.2** Définir le modèle de données pour les plans d'entraînement (tables `training_plans`, `planned_sessions`) _(Lot 5a, migration 003)_
 - [ ] **5.3** Implémenter la comparaison séance planifiée vs réalisée (matching par date/type, calcul des deltas)
-- [ ] **5.4** Créer les outils MCP ou les commandes CLI que l'agent utilisera pour lire/écrire dans la DB
-- [ ] **5.5** Écrire le system prompt de l'agent coach avec les règles d'entraînement (périodisation, charge progressive, récupération, spécificité par discipline)
+- [ ] **5.4** Créer les outils MCP ou les commandes CLI que l'agent utilisera pour lire/écrire dans la DB _(décision : CLI via Bash)_
+- [ ] **5.5** Écrire le system prompt de l'agent coach avec les règles d'entraînement (périodisation, charge progressive, récupération, spécificité par discipline) _(décision : subagent Claude Code)_
 - [ ] **5.6** Tests : matching planifié/réalisé, cohérence des plans générés
 
 ## Lot 6 — Export workouts vers services tiers

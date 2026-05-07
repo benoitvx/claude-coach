@@ -14,16 +14,29 @@ from strava_connect.auth import (
     token_path_from_env,
 )
 from strava_connect.db import (
+    GOAL_STATUSES,
+    PLAN_STATUSES,
+    SESSION_STATUSES,
     connect,
     count_activities,
     db_path_from_env,
+    get_goal,
     get_last_sync,
     get_latest_metrics,
     get_metrics_history,
+    get_training_plan,
     insert_athlete_metrics,
+    insert_goal,
+    insert_planned_session,
+    insert_training_plan,
+    list_goals,
+    list_planned_sessions,
+    list_training_plans,
     metrics_values_equal,
     migrate,
     stats_by_sport,
+    update_goal_status,
+    update_planned_session_status,
 )
 from strava_connect.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
 
@@ -298,3 +311,300 @@ def athlete_history(limit: int) -> None:
             f"{(str(m.vma_kmh) if m.vma_kmh is not None else '-'):>6}  "
             f"{m.note or ''}"
         )
+
+
+# --- Sous-commandes goal / plan (Lot 5a) ------------------------------------
+
+DISCIPLINES = ("run", "swim_run", "trail", "triathlon", "ride", "swim", "other")
+SESSION_TYPES = (
+    "endurance",
+    "threshold",
+    "intervals",
+    "long",
+    "race",
+    "recovery",
+    "renfo",
+)
+INTENSITIES = ("easy", "moderate", "threshold", "vo2max", "race")
+DATE_TYPE = click.DateTime(formats=["%Y-%m-%d"])
+
+
+@main.group()
+def goal() -> None:
+    """Gestion des objectifs sportifs (courses, événements cibles)."""
+
+
+@goal.command("add")
+@click.option("--name", required=True, help="Nom de l'objectif (ex: 'Swim&Run Sept 2026')")
+@click.option(
+    "--target-date", "target_date", type=DATE_TYPE, default=None, help="Date cible (YYYY-MM-DD)"
+)
+@click.option(
+    "--discipline", type=click.Choice(DISCIPLINES), default=None, help="Discipline principale"
+)
+@click.option("--description", default=None, help="Description libre")
+@click.option("--success-criteria", "success_criteria", default=None, help="Critères de réussite")
+def goal_add(
+    name: str,
+    target_date: datetime | None,
+    discipline: str | None,
+    description: str | None,
+    success_criteria: str | None,
+) -> None:
+    """Ajoute un objectif."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        g = insert_goal(
+            conn,
+            name=name,
+            discipline=discipline,
+            target_date=target_date.date() if target_date else None,
+            description=description,
+            success_criteria=success_criteria,
+        )
+    click.echo(f"OK — objectif #{g.id} créé : {g.name}")
+
+
+@goal.command("list")
+@click.option("--status", type=click.Choice(GOAL_STATUSES), default=None)
+def goal_list(status: str | None) -> None:
+    """Liste les objectifs (triés par date cible)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        goals = list_goals(conn, status=status)
+    if not goals:
+        click.echo("Aucun objectif.")
+        return
+    click.echo(f"{'#':>3}  {'Date':<10}  {'Statut':<10}  {'Discipline':<12}  Nom")
+    click.echo("-" * 70)
+    for g in goals:
+        click.echo(
+            f"{g.id:>3}  "
+            f"{(g.target_date.isoformat() if g.target_date else '-'):<10}  "
+            f"{g.status:<10}  "
+            f"{(g.discipline or '-'):<12}  "
+            f"{g.name}"
+        )
+
+
+@goal.command("show")
+@click.argument("goal_id", type=int)
+def goal_show(goal_id: int) -> None:
+    """Affiche le détail d'un objectif."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        g = get_goal(conn, goal_id)
+    if g is None:
+        raise click.ClickException(f"Aucun objectif #{goal_id}")
+    click.echo(f"Objectif #{g.id} — {g.name}")
+    click.echo(f"  statut       : {g.status}")
+    click.echo(f"  discipline   : {g.discipline or '-'}")
+    click.echo(f"  date cible   : {g.target_date.isoformat() if g.target_date else '-'}")
+    if g.description:
+        click.echo(f"  description  : {g.description}")
+    if g.success_criteria:
+        click.echo(f"  critères     : {g.success_criteria}")
+
+
+@goal.command("complete")
+@click.argument("goal_id", type=int)
+def goal_complete(goal_id: int) -> None:
+    """Marque l'objectif comme complété."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        try:
+            g = update_goal_status(conn, goal_id, "completed")
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — objectif #{g.id} marqué '{g.status}'")
+
+
+@main.group()
+def plan() -> None:
+    """Gestion des plans d'entraînement et des séances planifiées."""
+
+
+@plan.command("add")
+@click.option("--name", required=True, help="Nom du plan (ex: 'Prépa Swim&Run 12 sem')")
+@click.option("--start", "start", required=True, type=DATE_TYPE, help="Début (YYYY-MM-DD)")
+@click.option("--end", "end", required=True, type=DATE_TYPE, help="Fin (YYYY-MM-DD)")
+@click.option("--goal-id", "goal_id", type=int, default=None, help="ID d'un objectif lié")
+@click.option("--notes", default=None, help="Notes libres")
+def plan_add(
+    name: str,
+    start: datetime,
+    end: datetime,
+    goal_id: int | None,
+    notes: str | None,
+) -> None:
+    """Crée un plan d'entraînement."""
+    if end.date() < start.date():
+        raise click.ClickException("--end doit être >= --start")
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        if goal_id is not None and get_goal(conn, goal_id) is None:
+            raise click.ClickException(f"Aucun objectif #{goal_id}")
+        p = insert_training_plan(
+            conn,
+            name=name,
+            start_date=start.date(),
+            end_date=end.date(),
+            goal_id=goal_id,
+            notes=notes,
+        )
+    click.echo(f"OK — plan #{p.id} créé : {p.name}")
+
+
+@plan.command("list")
+@click.option("--goal-id", "goal_id", type=int, default=None)
+@click.option("--status", type=click.Choice(PLAN_STATUSES), default=None)
+def plan_list(goal_id: int | None, status: str | None) -> None:
+    """Liste les plans d'entraînement."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        plans = list_training_plans(conn, goal_id=goal_id, status=status)
+    if not plans:
+        click.echo("Aucun plan.")
+        return
+    click.echo(f"{'#':>3}  {'Début':<10}  {'Fin':<10}  {'Goal':>4}  {'Statut':<10}  Nom")
+    click.echo("-" * 70)
+    for p in plans:
+        click.echo(
+            f"{p.id:>3}  "
+            f"{p.start_date.isoformat():<10}  "
+            f"{p.end_date.isoformat():<10}  "
+            f"{(str(p.goal_id) if p.goal_id is not None else '-'):>4}  "
+            f"{p.status:<10}  "
+            f"{p.name}"
+        )
+
+
+@plan.command("show")
+@click.argument("plan_id", type=int)
+def plan_show(plan_id: int) -> None:
+    """Affiche un plan et toutes ses séances planifiées."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        p = get_training_plan(conn, plan_id)
+        if p is None:
+            raise click.ClickException(f"Aucun plan #{plan_id}")
+        sessions = list_planned_sessions(conn, training_plan_id=plan_id)
+    click.echo(f"Plan #{p.id} — {p.name}")
+    click.echo(f"  période     : {p.start_date.isoformat()} → {p.end_date.isoformat()}")
+    click.echo(f"  statut      : {p.status}")
+    click.echo(f"  objectif    : {p.goal_id if p.goal_id is not None else '-'}")
+    if p.notes:
+        click.echo(f"  notes       : {p.notes}")
+
+    if not sessions:
+        click.echo("\nAucune séance planifiée.")
+        return
+    click.echo(f"\n{len(sessions)} séances planifiées :")
+    click.echo(
+        f"{'#':>4}  {'Date':<10}  {'Sport':<10}  {'Type':<10}  "
+        f"{'Durée':>6}  {'Dist':>7}  {'Statut':<8}  Description"
+    )
+    click.echo("-" * 90)
+    for s in sessions:
+        dur = f"{s.target_duration_s // 60}min" if s.target_duration_s else "-"
+        dist = f"{s.target_distance_m / 1000:.1f}km" if s.target_distance_m else "-"
+        click.echo(
+            f"{s.id:>4}  "
+            f"{s.planned_date.isoformat():<10}  "
+            f"{s.sport_type:<10}  "
+            f"{(s.session_type or '-'):<10}  "
+            f"{dur:>6}  "
+            f"{dist:>7}  "
+            f"{s.status:<8}  "
+            f"{(s.description or '')[:40]}"
+        )
+
+
+@plan.group("session")
+def plan_session() -> None:
+    """Gestion des séances planifiées d'un plan."""
+
+
+@plan_session.command("add")
+@click.option("--plan-id", "plan_id", required=True, type=int)
+@click.option("--date", "date_", required=True, type=DATE_TYPE, help="Date prévue (YYYY-MM-DD)")
+@click.option("--sport", required=True, help="Sport Strava (Run, Ride, Swim, TrailRun, ...)")
+@click.option("--session-type", "session_type", type=click.Choice(SESSION_TYPES), default=None)
+@click.option("--duration", type=int, default=None, help="Durée cible en secondes")
+@click.option("--distance", type=float, default=None, help="Distance cible en mètres")
+@click.option("--intensity", type=click.Choice(INTENSITIES), default=None)
+@click.option("--description", default=None)
+@click.option("--notes", default=None)
+def plan_session_add(
+    plan_id: int,
+    date_: datetime,
+    sport: str,
+    session_type: str | None,
+    duration: int | None,
+    distance: float | None,
+    intensity: str | None,
+    description: str | None,
+    notes: str | None,
+) -> None:
+    """Ajoute une séance planifiée à un plan."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        if get_training_plan(conn, plan_id) is None:
+            raise click.ClickException(f"Aucun plan #{plan_id}")
+        s = insert_planned_session(
+            conn,
+            training_plan_id=plan_id,
+            planned_date=date_.date(),
+            sport_type=sport,
+            session_type=session_type,
+            target_duration_s=duration,
+            target_distance_m=distance,
+            target_intensity=intensity,
+            description=description,
+            notes=notes,
+        )
+    click.echo(f"OK — séance #{s.id} créée le {s.planned_date.isoformat()} ({s.sport_type})")
+
+
+@plan_session.command("list")
+@click.option("--plan-id", "plan_id", required=True, type=int)
+@click.option("--status", type=click.Choice(SESSION_STATUSES), default=None)
+def plan_session_list(plan_id: int, status: str | None) -> None:
+    """Liste les séances planifiées d'un plan."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        if get_training_plan(conn, plan_id) is None:
+            raise click.ClickException(f"Aucun plan #{plan_id}")
+        sessions = list_planned_sessions(conn, training_plan_id=plan_id, status=status)
+    if not sessions:
+        click.echo("Aucune séance.")
+        return
+    for s in sessions:
+        dur = f"{s.target_duration_s // 60}min" if s.target_duration_s else "-"
+        click.echo(
+            f"#{s.id:<4} {s.planned_date.isoformat()}  {s.sport_type:<10} "
+            f"{(s.session_type or '-'):<10}  {dur:>6}  {s.status}"
+        )
+
+
+@plan_session.command("done")
+@click.argument("session_id", type=int)
+def plan_session_done(session_id: int) -> None:
+    """Marque une séance comme réalisée (matching auto en lot 5b)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        try:
+            s = update_planned_session_status(conn, session_id, "done")
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — séance #{s.id} marquée 'done'")
