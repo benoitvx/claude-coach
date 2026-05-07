@@ -319,12 +319,12 @@ Permettre à l'utilisateur de suivre le programme directement sur sa montre ou d
 
 ## 10. Modèle de données — objectifs et planification
 
-<!-- EN COURS: lot 5 -->
+<!-- Lot 5a livré ; 5b-5d à venir -->
 
-Migration 003 introduit trois tables qui supportent la planification d'entraînement
-et serviront de base à l'agent coach (lot 5c/5d). Le matching automatique
-`planned_sessions.actual_activity_id` ↔ `activities.id` est laissé pour le lot 5b
-(la colonne existe dès maintenant pour éviter une re-migration).
+Migration 003 (lot 5a) introduit trois tables qui supportent la planification
+d'entraînement et serviront de base à l'agent coach (lot 5c/5d). Le matching
+automatique `planned_sessions.actual_activity_id` ↔ `activities.id` est laissé
+pour le lot 5b (la colonne existe dès maintenant pour éviter une re-migration).
 
 ### Table `goals`
 

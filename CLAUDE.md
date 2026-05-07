@@ -32,10 +32,30 @@ make sync              # Lancer la synchro Strava (équivalent CLI)
 ## CLI
 
 ```bash
-strava-connect auth          # Lancer le flow OAuth2 (une seule fois)
-strava-connect sync --full   # Import complet historique (2 ans)
-strava-connect sync          # Sync incrémentale (nouvelles activités)
-strava-connect status        # État de la DB et dernière sync
+# Auth & sync (lots 1-3)
+strava-connect auth           # Lancer le flow OAuth2 (une seule fois)
+strava-connect sync --full    # Import complet historique (2 ans)
+strava-connect sync           # Sync incrémentale (nouvelles activités)
+strava-connect status         # État de la DB et dernière sync
+
+# Données athlète historisées (lot 4)
+strava-connect athlete set --weight 75 --ftp 260 --fc-max 190 --fc-repos 48 --vma 17.5
+strava-connect athlete show
+strava-connect athlete history [--limit N]
+
+# Objectifs et planification (lot 5a)
+strava-connect goal add --name <NAME> [--target-date YYYY-MM-DD] [--discipline ...]
+strava-connect goal list [--status ...]
+strava-connect goal show <ID>
+strava-connect goal complete <ID>
+
+strava-connect plan add --name <NAME> --start <DATE> --end <DATE> [--goal-id <ID>]
+strava-connect plan list [--goal-id <ID>] [--status ...]
+strava-connect plan show <ID>
+
+strava-connect plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swim|...> [opts]
+strava-connect plan session list --plan-id <ID> [--status ...]
+strava-connect plan session done <ID>
 ```
 
 ## Architecture
