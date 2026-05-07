@@ -26,21 +26,44 @@ il forcera des re-fetchs perpétuels pour les activités qui n'en ont pas. Préf
 critère minimal (existence) quand l'insertion est transactionnelle.
 
 
-## Automatisation : crontab pour la sync incrémentale
+## Automatisation : sync planifiée (macOS)
 
-Une fois le full import terminé, programmer une sync chaque soir suffit :
+Préférer **launchd** plutôt que cron : un Mac qui dort à l'heure prévue rate
+le cron sans rattrapage, alors qu'avec launchd on peut au moins programmer
+à une heure où la machine est probablement éveillée.
 
-```cron
-# Sync Strava chaque soir à 22h00 (logs dans ~/strava-sync.log)
-0 22 * * * cd ~/Dev/strava-connect && /Users/<user>/.local/bin/uv run strava-connect sync >> ~/strava-sync.log 2>&1
+**Installation one-shot** (par défaut : 12:30 chaque jour) :
+
+```bash
+bash scripts/install-launchd-sync.sh
 ```
 
-À adapter au chemin réel de `uv` (`which uv`) — cron a un `$PATH` minimaliste qui ne
-contient pas forcément `~/.local/bin`. Le `cd` est nécessaire pour que `uv` retrouve
-le projet (et son `.venv`).
+Le script auto-détecte le chemin de `uv`, écrit `~/Library/LaunchAgents/com.strava-connect.sync.plist`
+et le charge via `launchctl`. Il est idempotent : relancer remplace l'agent
+existant. Logs dans `~/Library/Logs/strava-connect/sync.{out,err}.log`.
 
-Pour tester sans attendre 22h : `crontab -l` pour visualiser, et lancer la commande
-à la main d'abord pour valider.
+Pour changer l'heure : édite la plist (`Hour` / `Minute`) et relance le script.
+
+Pour tester sans attendre :
+```bash
+launchctl start com.strava-connect.sync
+```
+
+Désinstallation :
+```bash
+launchctl unload ~/Library/LaunchAgents/com.strava-connect.sync.plist
+rm ~/Library/LaunchAgents/com.strava-connect.sync.plist
+```
+
+**Note** : le quota lecture Strava reset à 00:00 UTC = 02:00 Paris. Une exécution
+à 12:30 garantit que le Mac est éveillé tout en disposant du quota frais. Tant
+que l'import historique n'est pas fini, le script utilise `sync --full` (skip
+les activités déjà complètes via `has_complete_activity` → coût marginal).
+Une fois historique complet, basculer vers `sync` (incrémentale, plus économe)
+en éditant la plist.
+
+Sur Linux : utiliser cron classique ou systemd timer (pas couvert ici, projet
+ciblé macOS).
 
 <!--
 Format :
