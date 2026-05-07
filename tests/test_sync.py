@@ -13,7 +13,7 @@ from strava_connect.auth import save_tokens
 from strava_connect.client import StravaClient
 from strava_connect.db import connect, count_activities, get_last_sync, has_complete_activity
 from strava_connect.models import Config, RateLimitState, Tokens
-from strava_connect.rate_limiter import RateLimiter
+from strava_connect.rate_limiter import DailyLimitReached, RateLimiter
 from strava_connect.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
 
 
@@ -291,6 +291,51 @@ def test_sync_full_daily_limit_partial(
         assert sync_log.status == "partial"
         assert sync_log.error_message is not None
         assert "journalier" in sync_log.error_message.lower()
+
+
+def test_sync_full_partial_preserves_count_after_some_imports(
+    fake_config: Config,
+    tokens_path: Path,
+    db_path: Path,
+    httpserver: HTTPServer,
+) -> None:
+    """La limite quotidienne tombe en cours d'import : fetched doit refléter les imports
+    déjà committés (pas 0 comme dans la version buggy de _run_pagination)."""
+
+    activities = [(6001, "A"), (6002, "B"), (6003, "C")]
+    _setup_strava_routes(httpserver, activities)
+
+    # Rate limiter qui laisse passer 2 activités (8 requêtes : 1 list + ~4/activité), puis trip.
+    class _TripAfter(RateLimiter):
+        def __init__(self, trip_after: int) -> None:
+            super().__init__()
+            self._calls = 0
+            self._trip_after = trip_after
+
+        def before_request(self, *, sleep: Any = None, now: Any = None) -> None:  # noqa: ARG002
+            if self._calls >= self._trip_after:
+                raise DailyLimitReached("Quota journalier Strava atteint (test).")
+            self._calls += 1
+
+    # 1 list_activities + 2 × 4 (detail/streams/laps/zones) = 9 requêtes pour 2 imports.
+    rl = _TripAfter(trip_after=9)
+    client = StravaClient(
+        fake_config,
+        tokens_path,
+        base_url=httpserver.url_for(""),
+        rate_limiter=rl,
+        sleep=lambda _s: None,
+    )
+
+    fetched, status = sync_full(fake_config, db_path, tokens_path, client=client)
+    assert status == "partial"
+    assert fetched == 2
+    with connect(db_path) as conn:
+        assert count_activities(conn) == 2
+        sync_log = get_last_sync(conn)
+        assert sync_log is not None
+        assert sync_log.status == "partial"
+        assert sync_log.activities_fetched == 2
 
 
 def test_sync_full_progress_callback(

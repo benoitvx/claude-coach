@@ -262,16 +262,16 @@ def _execute_sync(
             sync_id = start_sync(conn, sync_type)
             try:
                 with sleep_inhibitor(on_warn=on_warn):
-                    fetched = _run_pagination(
+                    fetched, partial_msg = _run_pagination(
                         client=client,
                         conn=conn,
                         after_epoch=after_epoch,
                         limit=limit,
                         on_progress=on_progress,
                     )
-            except DailyLimitReached as exc:
-                status = "partial"
-                error_message = str(exc)
+                if partial_msg is not None:
+                    status = "partial"
+                    error_message = partial_msg
             except Exception as exc:
                 status = "error"
                 error_message = str(exc)
@@ -302,27 +302,36 @@ def _run_pagination(
     after_epoch: int,
     limit: int | None,
     on_progress: ProgressFn | None,
-) -> int:
+) -> tuple[int, str | None]:
+    """Itère sur les activités à importer.
+
+    Retourne (fetched, partial_msg) où `partial_msg` vaut None en cas de succès
+    et le message de DailyLimitReached si on a tapé le quota journalier. Le compteur
+    reflète les imports réellement committés, même en sortie partielle.
+    """
     fetched = 0
     page = 1
-    while True:
-        summaries = client.list_activities(after_epoch=after_epoch, page=page)
-        if not summaries:
-            break
-        for summary in summaries:
-            activity_id = int(summary["id"])
-            if has_complete_activity(conn, activity_id):
-                continue
+    try:
+        while True:
+            summaries = client.list_activities(after_epoch=after_epoch, page=page)
+            if not summaries:
+                break
+            for summary in summaries:
+                activity_id = int(summary["id"])
+                if has_complete_activity(conn, activity_id):
+                    continue
+                if limit is not None and fetched >= limit:
+                    return fetched, None
+                _import_one_activity(client, conn, activity_id)
+                fetched += 1
+                if on_progress:
+                    on_progress(fetched, str(summary.get("name", "")))
             if limit is not None and fetched >= limit:
-                return fetched
-            _import_one_activity(client, conn, activity_id)
-            fetched += 1
-            if on_progress:
-                on_progress(fetched, str(summary.get("name", "")))
-        if limit is not None and fetched >= limit:
-            return fetched
-        page += 1
-    return fetched
+                return fetched, None
+            page += 1
+    except DailyLimitReached as exc:
+        return fetched, str(exc)
+    return fetched, None
 
 
 def _import_one_activity(client: StravaClient, conn: Any, activity_id: int) -> None:
