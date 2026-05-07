@@ -405,6 +405,49 @@ def insert_full_activity(
             )
 
 
+def _row_to_activity(row: sqlite3.Row) -> Activity:
+    return Activity(
+        id=row["id"],
+        athlete_id=row["athlete_id"],
+        name=row["name"],
+        sport_type=row["sport_type"],
+        start_date=row["start_date"],
+        start_date_local=row["start_date_local"],
+        timezone=row["timezone"],
+        distance_m=row["distance_m"],
+        moving_time_s=row["moving_time_s"],
+        elapsed_time_s=row["elapsed_time_s"],
+        total_elevation_gain_m=row["total_elevation_gain_m"],
+        average_speed_ms=row["average_speed_ms"],
+        max_speed_ms=row["max_speed_ms"],
+        average_heartrate=row["average_heartrate"],
+        max_heartrate=row["max_heartrate"],
+        average_watts=row["average_watts"],
+        max_watts=row["max_watts"],
+        average_cadence=row["average_cadence"],
+        calories=row["calories"],
+        suffer_score=row["suffer_score"],
+        description=row["description"],
+        device_name=row["device_name"],
+        gear_id=row["gear_id"],
+        has_heartrate=bool(row["has_heartrate"]) if row["has_heartrate"] is not None else None,
+        has_power=bool(row["has_power"]) if row["has_power"] is not None else None,
+        trainer=bool(row["trainer"]) if row["trainer"] is not None else None,
+        map_polyline=row["map_polyline"],
+        splits_metric=row["splits_metric"],
+        raw_json=row["raw_json"] or "",
+        synced_at=datetime.fromisoformat(row["synced_at"]) if row["synced_at"] else None,
+    )
+
+
+def get_activity(conn: sqlite3.Connection, activity_id: int) -> Activity | None:
+    row = conn.execute(
+        f"SELECT {_ACTIVITY_COLUMNS} FROM activities WHERE id = ?",
+        (activity_id,),
+    ).fetchone()
+    return _row_to_activity(row) if row else None
+
+
 def has_complete_activity(conn: sqlite3.Connection, activity_id: int) -> bool:
     """True si l'activité existe en DB.
 

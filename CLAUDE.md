@@ -52,6 +52,7 @@ strava-connect goal complete <ID>
 strava-connect plan add --name <NAME> --start <DATE> --end <DATE> [--goal-id <ID>]
 strava-connect plan list [--goal-id <ID>] [--status ...]
 strava-connect plan show <ID>
+strava-connect plan match [--plan-id <ID>] [--dry-run]   # apparie séances ↔ activités (lot 5b)
 
 strava-connect plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swim|...> [opts]
 strava-connect plan session list --plan-id <ID> [--status ...]
@@ -68,7 +69,8 @@ strava-connect/
 │   ├── client.py         # Client API Strava (rate-limited)
 │   ├── models.py         # Modèles de données (dataclasses)
 │   ├── db.py             # Couche SQLite (migrations, CRUD)
-│   └── sync.py           # Logique de synchronisation
+│   ├── sync.py           # Logique de synchronisation
+│   └── coach.py          # Matching planifié vs réalisé (lot 5b)
 ├── tests/
 ├── data/                 # DB SQLite + tokens (gitignored)
 ├── tasks/

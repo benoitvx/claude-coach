@@ -13,6 +13,11 @@ from strava_connect.auth import (
     start_oauth_flow,
     token_path_from_env,
 )
+from strava_connect.coach import (
+    MatchResult,
+    match_all_planned_sessions,
+    session_deltas,
+)
 from strava_connect.db import (
     GOAL_STATUSES,
     PLAN_STATUSES,
@@ -20,6 +25,7 @@ from strava_connect.db import (
     connect,
     count_activities,
     db_path_from_env,
+    get_activity,
     get_goal,
     get_last_sync,
     get_latest_metrics,
@@ -38,6 +44,7 @@ from strava_connect.db import (
     update_goal_status,
     update_planned_session_status,
 )
+from strava_connect.models import Activity, PlannedSession
 from strava_connect.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
 
 
@@ -496,6 +503,12 @@ def plan_show(plan_id: int) -> None:
         if p is None:
             raise click.ClickException(f"Aucun plan #{plan_id}")
         sessions = list_planned_sessions(conn, training_plan_id=plan_id)
+        # Charge les activités matchées (N+1 acceptable : ~20-30 sessions/plan).
+        activities = {
+            s.actual_activity_id: get_activity(conn, s.actual_activity_id)
+            for s in sessions
+            if s.actual_activity_id is not None
+        }
     click.echo(f"Plan #{p.id} — {p.name}")
     click.echo(f"  période     : {p.start_date.isoformat()} → {p.end_date.isoformat()}")
     click.echo(f"  statut      : {p.status}")
@@ -525,6 +538,87 @@ def plan_show(plan_id: int) -> None:
             f"{s.status:<8}  "
             f"{(s.description or '')[:40]}"
         )
+        if s.actual_activity_id is not None:
+            act = activities.get(s.actual_activity_id)
+            if act is not None:
+                click.echo(_format_realized_line(s, act))
+
+
+def _format_realized_line(s: PlannedSession, act: Activity) -> str:
+    """Ligne 'réalisé' pour une séance matchée : durée/distance/FC + écarts."""
+    parts: list[str] = []
+    if act.moving_time_s is not None:
+        parts.append(f"{act.moving_time_s // 60} min")
+    if act.distance_m is not None:
+        parts.append(f"{act.distance_m / 1000:.1f} km")
+    if act.average_heartrate is not None:
+        parts.append(f"FCmoy {int(act.average_heartrate)}")
+
+    deltas = session_deltas(s, act)
+    delta_parts: list[str] = []
+    dur_d = deltas["duration_delta_s"]
+    if dur_d is not None:
+        sign = "+" if dur_d >= 0 else ""
+        delta_parts.append(f"Δdurée {sign}{int(dur_d) // 60} min")
+    dist_d = deltas["distance_delta_m"]
+    if dist_d is not None:
+        sign = "+" if dist_d >= 0 else ""
+        delta_parts.append(f"Δdist {sign}{dist_d / 1000:.1f} km")
+
+    line = "        ↳ réalisé : " + ", ".join(parts) if parts else "        ↳ réalisé"
+    if delta_parts:
+        line += " (" + ", ".join(delta_parts) + ")"
+    return line
+
+
+@plan.command("match")
+@click.option(
+    "--plan-id",
+    "plan_id",
+    type=int,
+    default=None,
+    help="Limiter à un plan spécifique. Sans option : tous les plans actifs.",
+)
+@click.option("--dry-run", is_flag=True, help="Affiche sans écrire en DB")
+def plan_match(plan_id: int | None, dry_run: bool) -> None:
+    """Apparie chaque séance planifiée à une activité Strava (par date + famille de sport)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        if plan_id is not None and get_training_plan(conn, plan_id) is None:
+            raise click.ClickException(f"Aucun plan #{plan_id}")
+        results = match_all_planned_sessions(conn, plan_id=plan_id, dry_run=dry_run)
+
+    matched = [r for r in results if r.activity is not None]
+    unmatched = [r for r in results if r.activity is None]
+
+    prefix = "[dry-run] " if dry_run else ""
+    if not results:
+        click.echo(f"{prefix}Aucune séance à apparier.")
+        return
+
+    click.echo(f"{prefix}{len(matched)} séance(s) appariée(s), {len(unmatched)} sans match :")
+    for r in matched:
+        assert r.activity is not None  # narrow pour mypy
+        click.echo(_format_match_line(r, matched=True))
+    for r in unmatched:
+        click.echo(_format_match_line(r, matched=False))
+
+
+def _format_match_line(r: MatchResult, *, matched: bool) -> str:
+    sym = "✓" if matched else "✗"
+    sid = f"#{r.session.id}"
+    base = f"  {sym} {sid:<5} {r.session.planned_date.isoformat()} {r.session.sport_type:<10}"
+    if not matched or r.activity is None:
+        return f"{base} → aucune activité dans la fenêtre"
+
+    act = r.activity
+    same_day = act.start_date_local is not None and act.start_date_local.startswith(
+        r.session.planned_date.isoformat()
+    )
+    when = "même jour" if same_day else "J±1"
+    dur = f"{act.moving_time_s // 60} min" if act.moving_time_s else "?"
+    return f"{base} → activity {act.id} ({when}, {dur})"
 
 
 @plan.group("session")
@@ -599,7 +693,7 @@ def plan_session_list(plan_id: int, status: str | None) -> None:
 @plan_session.command("done")
 @click.argument("session_id", type=int)
 def plan_session_done(session_id: int) -> None:
-    """Marque une séance comme réalisée (matching auto en lot 5b)."""
+    """Marque manuellement une séance comme réalisée (sans la lier à une activité Strava)."""
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
         migrate(conn)

@@ -9,11 +9,15 @@ from strava_connect.cli import main
 from strava_connect.db import (
     connect,
     get_goal,
+    get_planned_session,
     get_training_plan,
+    insert_full_activity,
     list_goals,
     list_planned_sessions,
     migrate,
+    upsert_athlete,
 )
+from strava_connect.models import Activity, Athlete
 
 
 def _setup_env(monkeypatch: MonkeyPatch, tmp_path: Path) -> Path:
@@ -260,3 +264,128 @@ def test_plan_session_done_updates_status(monkeypatch: MonkeyPatch, tmp_path: Pa
         migrate(conn)
         sessions = list_planned_sessions(conn, training_plan_id=1)
     assert sessions[0].status == "done"
+
+
+# --- Lot 5b : plan match -----------------------------------------------------
+
+
+def _seed_plan_with_session_and_activity(
+    db_path: Path,
+    *,
+    plan_name: str = "P",
+    session_date: str = "2026-06-15",
+    activity_date_local: str = "2026-06-15T08:00:00",
+    sport: str = "Run",
+    activity_id: int = 5001,
+    moving_time_s: int = 3500,
+    distance_m: float = 10500.0,
+) -> None:
+    """Crée plan + 1 séance + 1 activité matchable. Sert plusieurs tests CLI."""
+    runner = CliRunner()
+    runner.invoke(
+        main,
+        ["plan", "add", "--name", plan_name, "--start", "2026-06-01", "--end", "2026-09-15"],
+    )
+    runner.invoke(
+        main,
+        [
+            "plan",
+            "session",
+            "add",
+            "--plan-id",
+            "1",
+            "--date",
+            session_date,
+            "--sport",
+            sport,
+            "--duration",
+            "3600",
+            "--distance",
+            "10000",
+        ],
+    )
+    with connect(db_path) as conn:
+        migrate(conn)
+        upsert_athlete(conn, Athlete(id=42))
+        insert_full_activity(
+            conn,
+            Activity(
+                id=activity_id,
+                athlete_id=42,
+                sport_type=sport,
+                start_date_local=activity_date_local,
+                moving_time_s=moving_time_s,
+                distance_m=distance_m,
+                average_heartrate=152.0,
+                raw_json="{}",
+            ),
+            [],
+            [],
+            [],
+        )
+
+
+def test_plan_match_no_sessions(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    result = CliRunner().invoke(main, ["plan", "match"])
+    assert result.exit_code == 0, result.output
+    assert "Aucune séance" in result.output
+
+
+def test_plan_match_writes_link_and_status(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    _seed_plan_with_session_and_activity(db_path)
+
+    result = CliRunner().invoke(main, ["plan", "match"])
+    assert result.exit_code == 0, result.output
+    assert "1 séance(s) appariée(s)" in result.output
+    assert "activity 5001" in result.output
+
+    with connect(db_path) as conn:
+        migrate(conn)
+        s = get_planned_session(conn, 1)
+    assert s is not None
+    assert s.actual_activity_id == 5001
+    assert s.status == "done"
+
+
+def test_plan_match_dry_run_shows_but_does_not_persist(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    _seed_plan_with_session_and_activity(db_path)
+
+    result = CliRunner().invoke(main, ["plan", "match", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "[dry-run]" in result.output
+    assert "1 séance(s) appariée(s)" in result.output
+
+    with connect(db_path) as conn:
+        migrate(conn)
+        s = get_planned_session(conn, 1)
+    assert s is not None
+    assert s.actual_activity_id is None
+    assert s.status == "planned"
+
+
+def test_plan_match_unknown_plan_id_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    result = CliRunner().invoke(main, ["plan", "match", "--plan-id", "999"])
+    assert result.exit_code != 0
+    assert "Aucun plan" in result.output
+
+
+def test_plan_show_displays_realized_line_after_match(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    _seed_plan_with_session_and_activity(db_path)
+    runner = CliRunner()
+    runner.invoke(main, ["plan", "match"])
+
+    result = runner.invoke(main, ["plan", "show", "1"])
+    assert result.exit_code == 0, result.output
+    assert "↳ réalisé" in result.output
+    assert "FCmoy 152" in result.output
+    # Δdurée -1 min (3600 cible - 3500 réalisé = -100s ≈ -1 min)
+    assert "Δdurée" in result.output

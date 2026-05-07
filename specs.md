@@ -319,12 +319,12 @@ Permettre à l'utilisateur de suivre le programme directement sur sa montre ou d
 
 ## 10. Modèle de données — objectifs et planification
 
-<!-- Lot 5a livré ; 5b-5d à venir -->
+<!-- Lots 5a-5b livrés ; 5c-5d à venir -->
 
 Migration 003 (lot 5a) introduit trois tables qui supportent la planification
 d'entraînement et serviront de base à l'agent coach (lot 5c/5d). Le matching
-automatique `planned_sessions.actual_activity_id` ↔ `activities.id` est laissé
-pour le lot 5b (la colonne existe dès maintenant pour éviter une re-migration).
+automatique `planned_sessions.actual_activity_id` ↔ `activities.id` est livré
+en lot 5b via le module `coach.py` et la commande `strava-connect plan match`.
 
 ### Table `goals`
 
@@ -386,7 +386,7 @@ Séances planifiées par l'agent (ou saisies manuellement).
 Index : `idx_planned_sessions_plan_date(training_plan_id, planned_date)`,
 `idx_planned_sessions_actual_activity(actual_activity_id)`.
 
-### Commandes CLI (lot 5a)
+### Commandes CLI (lots 5a + 5b)
 
 ```bash
 # Objectifs
@@ -398,14 +398,39 @@ strava-connect goal complete <ID>
 # Plans d'entraînement
 strava-connect plan add --name <NAME> --start YYYY-MM-DD --end YYYY-MM-DD [--goal-id <ID>] [--notes ...]
 strava-connect plan list [--goal-id <ID>] [--status ...]
-strava-connect plan show <ID>          # affiche plan + ses planned_sessions
+strava-connect plan show <ID>          # affiche plan + ses planned_sessions (+ ligne réalisé si match)
+strava-connect plan match [--plan-id <ID>] [--dry-run]  # apparie séances ↔ activités (lot 5b)
 
 # Séances planifiées (sous-groupe `plan session`)
 strava-connect plan session add --plan-id <ID> --date YYYY-MM-DD --sport <SPORT> [--session-type ...] [--duration <S>] [--distance <M>] [--intensity ...] [--description ...]
 strava-connect plan session list --plan-id <ID> [--status ...]
-strava-connect plan session done <ID>  # marque manuellement réalisée (matching auto en 5b)
+strava-connect plan session done <ID>  # marquage manuel sans lien vers une activité Strava
 ```
 
 Validation des enums : `click.Choice(...)` côté CLI seulement, pas de CHECK SQL
 (cohérent avec le reste du projet). Les contraintes Python sont dans
 `db.GOAL_STATUSES`, `db.PLAN_STATUSES`, `db.SESSION_STATUSES`.
+
+### Matching planifié vs réalisé (lot 5b)
+
+Le module `src/strava_connect/coach.py` apparie chaque `planned_session` en
+statut `planned` à l'`Activity` la plus probable :
+
+- **Familles de sport** (table `SPORT_FAMILIES` dans `coach.py`) : `Run` / `TrailRun` / `VirtualRun` → famille `run` ; `Ride` / `VirtualRide` / `GravelRide` / `EBikeRide` / `MountainBikeRide` → `ride` ; `Walk` / `Hike` → `walk` ; etc. Les sports non listés sont leur propre famille (`sport_type.lower()`).
+- **Fenêtre de date** : `start_date_local` de l'activité doit être dans `[planned_date - 1j, planned_date + 1j]`.
+- **Tri des candidats** : (1) même jour calendaire avant ±1 jour, (2) `moving_time_s` décroissant, (3) `id` croissant pour départager.
+- **Algorithme greedy chronologique** : les séances sont traitées par `planned_date` croissante. Si deux séances peuvent réclamer la même activité, la plus ancienne gagne. Une activité ne peut être liée qu'à une seule séance.
+- **Effets de bord** : la séance matchée passe en `status = 'done'` et `actual_activity_id` est rempli. Les séances déjà `done` / `skipped` sont ignorées.
+- **Idempotence** : relancer `plan match` ne re-matche pas les séances déjà liées et n'utilise pas les activités déjà liées.
+- **Sans `--plan-id`** : matche les séances de tous les plans `active`. Avec `--plan-id <N>` : ce plan uniquement (peu importe son statut).
+- **`--dry-run`** : affiche les matchings sans écrire en DB.
+
+Les écarts (durée / distance) sont calculés à la volée via `coach.session_deltas`
+et affichés dans `plan show` sous la forme :
+
+```
+   1  2026-06-15  Run     intervals  60min   10.0km  done   ...
+        ↳ réalisé : 58 min, 9.8 km, FCmoy 158 (Δdurée -2 min, Δdist -0.2 km)
+```
+
+Pas de stockage des deltas en DB (recalculés à chaque lecture).
