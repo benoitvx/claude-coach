@@ -216,6 +216,27 @@ L'import complet dure plusieurs heures réparties sur 2 jours. Pour empêcher la
 - Sur erreur 401 : tenter un refresh token, puis re-auth si échec
 - Log de chaque erreur dans `sync_log`
 
+### Sync planifiée (macOS)
+
+`scripts/install-launchd-sync.sh` installe une tâche **launchd** qui exécute
+`strava-connect sync --full` chaque jour. Préféré à cron parce que la plist
+est éditable, les logs sont centralisés (`~/Library/Logs/strava-connect/`)
+et l'agent est rechargeable de façon idempotente.
+
+Schedule par défaut : **02:05 heure locale** — juste après le reset du quota
+journalier Strava (00:00 UTC = 02:00 Paris). Override possible via env vars :
+`SYNC_HOUR=12 SYNC_MINUTE=30 bash scripts/install-launchd-sync.sh`.
+
+Pendant l'import historique initial (Mac laissé allumé la nuit), 02:05 est
+optimal. Une fois l'historique fini, basculer vers une heure de jour (ex 12:30)
+plus tolérante à un Mac qui dort la nuit. Le script utilise `sync --full`
+pour rester compatible avec les deux phases — le coût d'un `--full`
+incrémental est marginal grâce à `has_complete_activity`.
+
+Voir `tasks/lessons.md` pour les commandes de vérification et désinstallation.
+
+Sur Linux : non couvert (cron classique ou systemd timer feraient l'affaire).
+
 ## 6. Configuration
 
 Fichier `data/config.json` (gitignored) :
