@@ -154,6 +154,9 @@ def sleep_inhibitor(*, on_warn: Callable[[str], None] | None = None) -> Iterator
             proc.kill()
 
 
+LOOKBACK_DAYS_DEFAULT = 7
+
+
 # --- sync orchestrator ------------------------------------------------------
 
 
@@ -173,7 +176,79 @@ def sync_full(
     Retourne (activités_importées, status) avec status ∈ {success, partial, error}.
     """
     after_epoch = int((datetime.now(tz=UTC) - timedelta(days=history_days)).timestamp())
+    return _execute_sync(
+        config=config,
+        db_path=db_path,
+        tokens_path=tokens_path,
+        sync_type="full",
+        after_epoch=after_epoch,
+        limit=limit,
+        on_progress=on_progress,
+        on_warn=on_warn,
+        client=client,
+    )
 
+
+def sync_incremental(
+    config: Config,
+    db_path: Path,
+    tokens_path: Path,
+    *,
+    lookback_days: int = LOOKBACK_DAYS_DEFAULT,
+    history_days_fallback: int = 730,
+    limit: int | None = None,
+    on_progress: ProgressFn | None = None,
+    on_warn: Callable[[str], None] | None = None,
+    client: StravaClient | None = None,
+) -> tuple[int, str]:
+    """Sync incrémentale : depuis `max(start_date) - lookback_days`.
+
+    Si la DB est vide, bascule automatiquement sur `sync_full` avec
+    `history_days_fallback`.
+    """
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        last_epoch = _max_start_date_epoch(conn)
+
+    if last_epoch is None:
+        # DB vide → bascule sur full avec history_days_fallback
+        return sync_full(
+            config,
+            db_path,
+            tokens_path,
+            history_days=history_days_fallback,
+            limit=limit,
+            on_progress=on_progress,
+            on_warn=on_warn,
+            client=client,
+        )
+
+    after_epoch = last_epoch - lookback_days * 86_400
+    return _execute_sync(
+        config=config,
+        db_path=db_path,
+        tokens_path=tokens_path,
+        sync_type="incremental",
+        after_epoch=after_epoch,
+        limit=limit,
+        on_progress=on_progress,
+        on_warn=on_warn,
+        client=client,
+    )
+
+
+def _execute_sync(
+    *,
+    config: Config,
+    db_path: Path,
+    tokens_path: Path,
+    sync_type: str,
+    after_epoch: int,
+    limit: int | None,
+    on_progress: ProgressFn | None,
+    on_warn: Callable[[str], None] | None,
+    client: StravaClient | None,
+) -> tuple[int, str]:
     fetched = 0
     status = "success"
     error_message: str | None = None
@@ -181,35 +256,43 @@ def sync_full(
     own_client = client is None
     client = client or StravaClient(config, tokens_path)
 
-    with closing(connect(db_path)) as conn:
-        migrate(conn)
-        sync_id = start_sync(conn, "full")
-        try:
-            with sleep_inhibitor(on_warn=on_warn):
-                fetched = _run_pagination(
-                    client=client,
-                    conn=conn,
-                    after_epoch=after_epoch,
-                    limit=limit,
-                    on_progress=on_progress,
-                )
-        except DailyLimitReached as exc:
-            status = "partial"
-            error_message = str(exc)
-        except Exception as exc:
-            status = "error"
-            error_message = str(exc)
-            finish_sync(conn, sync_id, status, fetched, error_message)
-            if own_client:
-                client.close()
-            raise
-        finally:
-            if status == "success" or status == "partial":
+    try:
+        with closing(connect(db_path)) as conn:
+            migrate(conn)
+            sync_id = start_sync(conn, sync_type)
+            try:
+                with sleep_inhibitor(on_warn=on_warn):
+                    fetched = _run_pagination(
+                        client=client,
+                        conn=conn,
+                        after_epoch=after_epoch,
+                        limit=limit,
+                        on_progress=on_progress,
+                    )
+            except DailyLimitReached as exc:
+                status = "partial"
+                error_message = str(exc)
+            except Exception as exc:
+                status = "error"
+                error_message = str(exc)
+                raise
+            finally:
                 finish_sync(conn, sync_id, status, fetched, error_message)
-            if own_client:
-                client.close()
+    finally:
+        if own_client:
+            client.close()
 
     return fetched, status
+
+
+def _max_start_date_epoch(conn: Any) -> int | None:
+    """Retourne l'epoch UTC de l'activité la plus récente, ou None si DB vide."""
+    row = conn.execute("SELECT MAX(start_date) FROM activities").fetchone()
+    raw = row[0] if row else None
+    if not raw:
+        return None
+    # Strava renvoie 'YYYY-MM-DDTHH:MM:SSZ' ; on remplace Z pour fromisoformat ≤ 3.10.
+    return int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp())
 
 
 def _run_pagination(

@@ -34,12 +34,12 @@
 
 ## Lot 3 — Sync incrémentale
 
-- [ ] **3.1** Implémenter la sync incrémentale : détection des nouvelles activités depuis la dernière sync
-- [ ] **3.2** Commande CLI `strava-connect sync` (sans `--full`) : sync incrémentale
-- [ ] **3.3** Gestion des activités modifiées/supprimées sur Strava
-- [ ] **3.4** Script/commande pour lancer la sync via cron ou manuellement après une séance
-- [ ] **3.5** Tests unitaires : détection de doublons, activités supprimées
-- [ ] **3.6** Tests intégration : `sync` incrémentale avec faux serveur, vérifier qu'on ne re-télécharge pas les activités existantes
+- [x] **3.1** Implémenter la sync incrémentale : détection des nouvelles activités depuis la dernière sync
+- [x] **3.2** Commande CLI `strava-connect sync` (sans `--full`) : sync incrémentale
+- [~] **3.3** Gestion des activités modifiées/supprimées sur Strava _(scope-out — règle utilisateur : pas de modif/suppression Strava après upload)_
+- [x] **3.4** Script/commande pour lancer la sync via cron ou manuellement après une séance _(doc dans `tasks/lessons.md`)_
+- [x] **3.5** Tests unitaires : détection de doublons, activités supprimées
+- [x] **3.6** Tests intégration : `sync` incrémentale avec faux serveur, vérifier qu'on ne re-télécharge pas les activités existantes
 
 ## Lot 4 — Données athlète
 

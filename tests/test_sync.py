@@ -14,7 +14,7 @@ from strava_connect.client import StravaClient
 from strava_connect.db import connect, count_activities, get_last_sync, has_complete_activity
 from strava_connect.models import Config, RateLimitState, Tokens
 from strava_connect.rate_limiter import RateLimiter
-from strava_connect.sync import sync_full
+from strava_connect.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
 
 
 @pytest.fixture(autouse=True)
@@ -242,6 +242,28 @@ def test_sync_full_handles_zones_403(
         assert zones_count == 0
 
 
+def test_sync_full_handles_streams_404(
+    fake_config: Config,
+    tokens_path: Path,
+    db_path: Path,
+    httpserver: HTTPServer,
+) -> None:
+    # Activité manuelle (ex. Étirements) : Strava renvoie 404 sur /streams.
+    _setup_strava_routes(httpserver, [(4101, "Étirements")], streams_status=404)
+
+    client = _make_client(fake_config, tokens_path, httpserver)
+    fetched, status = sync_full(fake_config, db_path, tokens_path, client=client)
+    assert fetched == 1
+    assert status == "success"
+    with connect(db_path) as conn:
+        # Activité importée sans streams — toujours considérée complète (existence suffit).
+        assert has_complete_activity(conn, 4101) is True
+        streams_count = conn.execute(
+            "SELECT COUNT(*) FROM activity_streams WHERE activity_id = 4101"
+        ).fetchone()[0]
+        assert streams_count == 0
+
+
 def test_sync_full_daily_limit_partial(
     fake_config: Config,
     tokens_path: Path,
@@ -307,3 +329,157 @@ def test_sync_full_unexpected_error_logs_and_reraises(
         sync_log = get_last_sync(conn)
         assert sync_log is not None
         assert sync_log.status == "error"
+
+
+# --- Lot 3 : sync_incremental ----------------------------------------------
+
+
+def _seed_activity_with_date(
+    db_path: Path, activity_id: int, start_date: str, name: str = "Seed"
+) -> None:
+    """Insère une activité complète directement en DB pour simuler un état post-import."""
+    from strava_connect.db import insert_full_activity, migrate, upsert_athlete
+    from strava_connect.models import Activity, Athlete, Lap, Stream
+
+    with connect(db_path) as conn:
+        migrate(conn)
+        upsert_athlete(conn, Athlete(id=42))
+        insert_full_activity(
+            conn,
+            Activity(
+                id=activity_id,
+                athlete_id=42,
+                name=name,
+                sport_type="Run",
+                start_date=start_date,
+                distance_m=10000.0,
+                raw_json="{}",
+            ),
+            [Stream(activity_id=activity_id, stream_type="time", data="[0,1]", resolution="high")],
+            [Lap(id=activity_id * 10 + 1, activity_id=activity_id, lap_index=1)],
+            [],
+        )
+
+
+def test_sync_incremental_db_vide_fallback_full(
+    fake_config: Config,
+    tokens_path: Path,
+    db_path: Path,
+    httpserver: HTTPServer,
+) -> None:
+    # DB vide → bascule sur full, avec history_days_fallback explicite.
+    _setup_strava_routes(httpserver, [(7001, "New")])
+    client = _make_client(fake_config, tokens_path, httpserver)
+
+    fetched, status = sync_incremental(
+        fake_config, db_path, tokens_path, history_days_fallback=730, client=client
+    )
+
+    assert fetched == 1
+    assert status == "success"
+    with connect(db_path) as conn:
+        sync_log = get_last_sync(conn)
+        assert sync_log is not None
+        # Fallback → sync_type = "full"
+        assert sync_log.sync_type == "full"
+
+
+def test_sync_incremental_only_fetches_new_activities(
+    fake_config: Config,
+    tokens_path: Path,
+    db_path: Path,
+    httpserver: HTTPServer,
+) -> None:
+    # Pré-populer une activité ancienne, déjà complète.
+    _seed_activity_with_date(db_path, 8001, "2026-04-01T08:00:00Z", "Old Run")
+
+    # Strava retourne l'ancienne (qui sera skip) + une nouvelle.
+    _setup_strava_routes(
+        httpserver,
+        [(8001, "Old Run"), (8002, "New Run")],
+    )
+    client = _make_client(fake_config, tokens_path, httpserver)
+
+    fetched, status = sync_incremental(fake_config, db_path, tokens_path, client=client)
+
+    assert fetched == 1
+    assert status == "success"
+    paths_called = [req.path for req, _ in httpserver.log]
+    # L'activité ancienne ne doit PAS avoir été re-fetched.
+    assert "/activities/8001" not in paths_called
+    assert "/activities/8002" in paths_called
+
+
+def test_sync_incremental_lookback_filter(
+    fake_config: Config,
+    tokens_path: Path,
+    db_path: Path,
+    httpserver: HTTPServer,
+) -> None:
+    """Vérifie que `after_epoch` envoyé à Strava = max(start_date) - lookback_days."""
+    last_iso = "2026-05-01T12:00:00Z"
+    _seed_activity_with_date(db_path, 9001, last_iso)
+    expected_after = int(
+        (datetime.fromisoformat(last_iso.replace("Z", "+00:00")) - timedelta(days=3)).timestamp()
+    )
+
+    captured: dict[str, str] = {}
+
+    def _capture(request: Request) -> Response:
+        captured["after"] = request.args.get("after", "")
+        return Response("[]", status=200, content_type="application/json")
+
+    httpserver.expect_request("/athlete/activities").respond_with_handler(_capture)
+    client = _make_client(fake_config, tokens_path, httpserver)
+
+    sync_incremental(fake_config, db_path, tokens_path, lookback_days=3, client=client)
+    assert captured["after"] == str(expected_after)
+
+
+def test_sync_incremental_log_type_incremental(
+    fake_config: Config,
+    tokens_path: Path,
+    db_path: Path,
+    httpserver: HTTPServer,
+) -> None:
+    _seed_activity_with_date(db_path, 9501, "2026-04-15T08:00:00Z")
+    _setup_strava_routes(httpserver, [(9501, "Already there")])
+    client = _make_client(fake_config, tokens_path, httpserver)
+
+    sync_incremental(fake_config, db_path, tokens_path, client=client)
+    with connect(db_path) as conn:
+        sync_log = get_last_sync(conn)
+        assert sync_log is not None
+        assert sync_log.sync_type == "incremental"
+
+
+def test_sync_incremental_daily_limit_partial(
+    fake_config: Config,
+    tokens_path: Path,
+    db_path: Path,
+    httpserver: HTTPServer,
+) -> None:
+    _seed_activity_with_date(db_path, 9601, "2026-04-15T08:00:00Z")
+    rl = RateLimiter(
+        RateLimitState(usage_15min=10, limit_15min=100, usage_daily=999, limit_daily=1000)
+    )
+    client = StravaClient(
+        fake_config,
+        tokens_path,
+        base_url=httpserver.url_for(""),
+        rate_limiter=rl,
+        sleep=lambda _s: None,
+    )
+
+    fetched, status = sync_incremental(fake_config, db_path, tokens_path, client=client)
+    assert status == "partial"
+    assert fetched == 0
+    with connect(db_path) as conn:
+        sync_log = get_last_sync(conn)
+        assert sync_log is not None
+        assert sync_log.status == "partial"
+        assert sync_log.sync_type == "incremental"
+
+
+def test_sync_incremental_default_lookback_is_7_days() -> None:
+    assert LOOKBACK_DAYS_DEFAULT == 7

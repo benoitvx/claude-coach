@@ -102,10 +102,16 @@ class StravaClient:
     def get_streams(
         self, activity_id: int, types: tuple[str, ...] = DEFAULT_STREAMS
     ) -> dict[str, dict[str, Any]]:
-        result = self._get(
-            f"/activities/{activity_id}/streams",
-            params={"keys": ",".join(types), "key_by_type": "true"},
-        )
+        """Retourne `{}` si l'activité n'a pas de streams (saisie manuelle → 404)."""
+        try:
+            result = self._get(
+                f"/activities/{activity_id}/streams",
+                params={"keys": ",".join(types), "key_by_type": "true"},
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return {}
+            raise
         if not isinstance(result, dict):
             raise StravaClientError(
                 f"/activities/{activity_id}/streams a retourné {type(result).__name__}"

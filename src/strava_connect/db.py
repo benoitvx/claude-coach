@@ -333,20 +333,17 @@ def insert_full_activity(
 
 
 def has_complete_activity(conn: sqlite3.Connection, activity_id: int) -> bool:
-    """True si l'activité existe ET a au moins 1 stream ET au moins 1 lap.
+    """True si l'activité existe en DB.
 
-    Les zones sont optionnelles (Summit-only) → exclues du critère.
+    `insert_full_activity` est transactionnel : si la ligne `activities` est présente,
+    streams/laps/zones associés ont été insérés dans la même transaction (ou volontairement
+    omis pour les activités manuelles sans streams ni les comptes non-Summit pour les zones).
     """
     row = conn.execute(
-        """
-        SELECT
-            EXISTS(SELECT 1 FROM activities WHERE id = ?) AS has_act,
-            EXISTS(SELECT 1 FROM activity_streams WHERE activity_id = ?) AS has_str,
-            EXISTS(SELECT 1 FROM activity_laps WHERE activity_id = ?) AS has_lap
-        """,
-        (activity_id, activity_id, activity_id),
+        "SELECT EXISTS(SELECT 1 FROM activities WHERE id = ?) AS has_act",
+        (activity_id,),
     ).fetchone()
-    return bool(row["has_act"]) and bool(row["has_str"]) and bool(row["has_lap"])
+    return bool(row["has_act"])
 
 
 def start_sync(conn: sqlite3.Connection, sync_type: str) -> int:

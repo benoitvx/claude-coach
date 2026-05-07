@@ -190,18 +190,19 @@ def test_has_complete_activity_true_when_all_present(db_conn: sqlite3.Connection
     assert has_complete_activity(db_conn, 1001) is True
 
 
-def test_has_complete_activity_false_when_streams_missing(db_conn: sqlite3.Connection) -> None:
+def test_has_complete_activity_true_when_streams_missing(db_conn: sqlite3.Connection) -> None:
+    # Activité manuelle (Étirements, etc.) : Strava renvoie 404 sur /streams.
     _seed_activity(db_conn, activity_id=1001, streams=False)
-    assert has_complete_activity(db_conn, 1001) is False
+    assert has_complete_activity(db_conn, 1001) is True
 
 
-def test_has_complete_activity_false_when_laps_missing(db_conn: sqlite3.Connection) -> None:
+def test_has_complete_activity_true_when_laps_missing(db_conn: sqlite3.Connection) -> None:
     _seed_activity(db_conn, activity_id=1001, laps=False)
-    assert has_complete_activity(db_conn, 1001) is False
+    assert has_complete_activity(db_conn, 1001) is True
 
 
 def test_has_complete_activity_true_without_zones(db_conn: sqlite3.Connection) -> None:
-    # Zones sont optionnelles (Summit-only) → pas dans le critère.
+    # Zones sont optionnelles (Summit-only).
     _seed_activity(db_conn, activity_id=1001, zones=False)
     assert has_complete_activity(db_conn, 1001) is True
 

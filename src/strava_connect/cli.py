@@ -22,7 +22,7 @@ from strava_connect.db import (
     migrate,
     stats_by_sport,
 )
-from strava_connect.sync import sync_full
+from strava_connect.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
 
 
 @click.group()
@@ -103,19 +103,31 @@ def status() -> None:
 
 
 @main.command()
-@click.option("--full", is_flag=True, help="Import complet (history_days = config).")
+@click.option(
+    "--full",
+    is_flag=True,
+    help="Import complet (history_days = config). Sans ce flag : sync incrémentale.",
+)
 @click.option(
     "--limit",
     type=int,
     default=None,
     help="Limite N activités max (utile pour smoke test).",
 )
-def sync(full: bool, limit: int | None) -> None:
-    """Synchronise les activités Strava dans la DB locale."""
-    if not full:
-        raise click.ClickException(
-            "La sync incrémentale arrive en Lot 3. Utilise `--full` pour le moment."
-        )
+@click.option(
+    "--lookback-days",
+    type=int,
+    default=LOOKBACK_DAYS_DEFAULT,
+    show_default=True,
+    help="Sync incrémentale : nombre de jours à relire avant la dernière activité connue.",
+)
+def sync(full: bool, limit: int | None, lookback_days: int) -> None:
+    """Synchronise les activités Strava dans la DB locale.
+
+    Sans option : sync incrémentale (depuis la dernière activité connue,
+    avec lookback configurable). Avec `--full` : import complet sur
+    `history_days` jours.
+    """
     try:
         config = load_config()
     except ConfigError as exc:
@@ -131,15 +143,27 @@ def sync(full: bool, limit: int | None) -> None:
         click.echo(f"⚠ {msg}", err=True)
 
     try:
-        fetched, status = sync_full(
-            config,
-            db_path,
-            tokens_path,
-            history_days=config.history_days,
-            limit=limit,
-            on_progress=_on_progress,
-            on_warn=_on_warn,
-        )
+        if full:
+            fetched, status = sync_full(
+                config,
+                db_path,
+                tokens_path,
+                history_days=config.history_days,
+                limit=limit,
+                on_progress=_on_progress,
+                on_warn=_on_warn,
+            )
+        else:
+            fetched, status = sync_incremental(
+                config,
+                db_path,
+                tokens_path,
+                lookback_days=lookback_days,
+                history_days_fallback=config.history_days,
+                limit=limit,
+                on_progress=_on_progress,
+                on_warn=_on_warn,
+            )
     except AuthError as exc:
         raise click.ClickException(str(exc)) from exc
 
