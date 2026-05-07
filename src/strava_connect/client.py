@@ -119,11 +119,11 @@ class StravaClient:
         return result
 
     def get_zones(self, activity_id: int) -> list[dict[str, Any]] | None:
-        """Retourne None si l'utilisateur n'est pas Summit (403/404)."""
+        """Retourne None si l'utilisateur n'est pas Summit (402/403/404)."""
         try:
             result = self._get(f"/activities/{activity_id}/zones")
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in (403, 404):
+            if exc.response.status_code in (402, 403, 404):
                 return None
             raise
         if not isinstance(result, list):

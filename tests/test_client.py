@@ -86,6 +86,12 @@ def test_get_zones_returns_list(httpserver: HTTPServer, client: StravaClient) ->
     assert zones[0]["type"] == "heartrate"
 
 
+def test_get_zones_returns_none_on_402(httpserver: HTTPServer, client: StravaClient) -> None:
+    # Strava renvoie 402 Payment Required pour les comptes non-Summit.
+    httpserver.expect_request("/activities/123/zones").respond_with_data("pay up", status=402)
+    assert client.get_zones(123) is None
+
+
 def test_get_zones_returns_none_on_403(httpserver: HTTPServer, client: StravaClient) -> None:
     httpserver.expect_request("/activities/123/zones").respond_with_data("forbidden", status=403)
     assert client.get_zones(123) is None
