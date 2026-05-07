@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Installe une tâche launchd qui lance `strava-connect sync --full` chaque jour.
 #
-# - Schedule par défaut : tous les jours à 12:30 (heure locale).
-#   Le quota lecture Strava (1000 req/jour) reset à 00:00 UTC = 02:00 Paris.
-#   Une exécution à 12:30 garantit que le Mac est probablement éveillé.
+# - Schedule par défaut : tous les jours à 02:05 (heure locale).
+#   Le quota Strava reset à 00:00 UTC = 02:00 Paris ; 02:05 = quota frais
+#   et créneau "Mac probablement allumé toute la nuit" pendant l'import
+#   historique initial. Pour les jours suivants, mieux vaut basculer à une
+#   heure où la machine est sûrement éveillée (ex: 12:30) — voir override.
+#
+# Override : SYNC_HOUR=12 SYNC_MINUTE=30 bash scripts/install-launchd-sync.sh
+#
 # - Logs dans ~/Library/Logs/strava-connect/sync.{out,err}.log
 # - Idempotent : relancer le script remplace l'agent existant.
-#
-# Personnalisation : édite ensuite `~/Library/LaunchAgents/com.strava-connect.sync.plist`
-# (clés StartCalendarInterval > Hour/Minute) puis relance ce script.
 
 set -euo pipefail
 
@@ -29,8 +31,8 @@ if [[ -z "$UV_BIN" ]]; then
   exit 1
 fi
 
-HOUR=12
-MINUTE=30
+HOUR="${SYNC_HOUR:-2}"
+MINUTE="${SYNC_MINUTE:-5}"
 
 mkdir -p "$LOG_DIR" "$(dirname "$PLIST_PATH")"
 

@@ -32,17 +32,24 @@ Préférer **launchd** plutôt que cron : un Mac qui dort à l'heure prévue rat
 le cron sans rattrapage, alors qu'avec launchd on peut au moins programmer
 à une heure où la machine est probablement éveillée.
 
-**Installation one-shot** (par défaut : 12:30 chaque jour) :
+**Installation one-shot** (par défaut : 02:05 chaque jour, quota Strava frais à 02:00 Paris) :
 
 ```bash
 bash scripts/install-launchd-sync.sh
+```
+
+Override de l'heure via env vars :
+```bash
+SYNC_HOUR=12 SYNC_MINUTE=30 bash scripts/install-launchd-sync.sh
 ```
 
 Le script auto-détecte le chemin de `uv`, écrit `~/Library/LaunchAgents/com.strava-connect.sync.plist`
 et le charge via `launchctl`. Il est idempotent : relancer remplace l'agent
 existant. Logs dans `~/Library/Logs/strava-connect/sync.{out,err}.log`.
 
-Pour changer l'heure : édite la plist (`Hour` / `Minute`) et relance le script.
+Tip : pendant l'import historique initial (le Mac peut être laissé allumé la
+nuit), 02:05 est idéal. Une fois l'historique fini, basculer vers 12:30 —
+plus tolérant à un Mac qui dort la nuit.
 
 Pour tester sans attendre :
 ```bash
