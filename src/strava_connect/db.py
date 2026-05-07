@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 import sqlite3
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
-from strava_connect.models import Athlete, SyncLog
+from strava_connect.models import Activity, Athlete, Lap, Stream, SyncLog, Zone
 
 DEFAULT_DB_PATH = Path("data/strava.db")
 
@@ -218,3 +218,159 @@ def stats_by_sport(conn: sqlite3.Connection) -> dict[str, int]:
         "SELECT sport_type, COUNT(*) AS n FROM activities GROUP BY sport_type ORDER BY n DESC"
     ).fetchall()
     return {row["sport_type"] or "unknown": int(row["n"]) for row in rows}
+
+
+# --- Activités, streams, laps, zones (Lot 2) -------------------------------
+
+_ACTIVITY_COLUMNS = (
+    "id, athlete_id, name, sport_type, start_date, start_date_local, timezone, "
+    "distance_m, moving_time_s, elapsed_time_s, total_elevation_gain_m, "
+    "average_speed_ms, max_speed_ms, average_heartrate, max_heartrate, "
+    "average_watts, max_watts, average_cadence, calories, suffer_score, "
+    "description, device_name, gear_id, has_heartrate, has_power, trainer, "
+    "map_polyline, splits_metric, raw_json, synced_at"
+)
+
+_ACTIVITY_PLACEHOLDERS = ", ".join("?" for _ in _ACTIVITY_COLUMNS.split(", "))
+
+
+def _activity_row(activity: Activity) -> tuple[object, ...]:
+    return (
+        activity.id,
+        activity.athlete_id,
+        activity.name,
+        activity.sport_type,
+        activity.start_date,
+        activity.start_date_local,
+        activity.timezone,
+        activity.distance_m,
+        activity.moving_time_s,
+        activity.elapsed_time_s,
+        activity.total_elevation_gain_m,
+        activity.average_speed_ms,
+        activity.max_speed_ms,
+        activity.average_heartrate,
+        activity.max_heartrate,
+        activity.average_watts,
+        activity.max_watts,
+        activity.average_cadence,
+        activity.calories,
+        activity.suffer_score,
+        activity.description,
+        activity.device_name,
+        activity.gear_id,
+        int(activity.has_heartrate) if activity.has_heartrate is not None else None,
+        int(activity.has_power) if activity.has_power is not None else None,
+        int(activity.trainer) if activity.trainer is not None else None,
+        activity.map_polyline,
+        activity.splits_metric,
+        activity.raw_json,
+        activity.synced_at.isoformat() if activity.synced_at else None,
+    )
+
+
+def insert_full_activity(
+    conn: sqlite3.Connection,
+    activity: Activity,
+    streams: list[Stream],
+    laps: list[Lap],
+    zones: list[Zone],
+) -> None:
+    """Insère ou remplace une activité et toutes ses dépendances dans une transaction."""
+    with conn:
+        conn.execute(
+            f"INSERT OR REPLACE INTO activities ({_ACTIVITY_COLUMNS}) "
+            f"VALUES ({_ACTIVITY_PLACEHOLDERS})",
+            _activity_row(activity),
+        )
+        # Streams : remplacer entièrement le set existant pour rester idempotent.
+        conn.execute("DELETE FROM activity_streams WHERE activity_id = ?", (activity.id,))
+        if streams:
+            conn.executemany(
+                "INSERT INTO activity_streams (activity_id, stream_type, data, resolution) "
+                "VALUES (?, ?, ?, ?)",
+                [(s.activity_id, s.stream_type, s.data, s.resolution) for s in streams],
+            )
+        conn.execute("DELETE FROM activity_laps WHERE activity_id = ?", (activity.id,))
+        if laps:
+            conn.executemany(
+                """
+                INSERT INTO activity_laps (
+                    id, activity_id, name, lap_index, distance_m, moving_time_s,
+                    elapsed_time_s, start_index, end_index, average_speed_ms,
+                    max_speed_ms, average_heartrate, max_heartrate, average_watts,
+                    average_cadence, total_elevation_gain_m
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                [
+                    (
+                        lap.id,
+                        lap.activity_id,
+                        lap.name,
+                        lap.lap_index,
+                        lap.distance_m,
+                        lap.moving_time_s,
+                        lap.elapsed_time_s,
+                        lap.start_index,
+                        lap.end_index,
+                        lap.average_speed_ms,
+                        lap.max_speed_ms,
+                        lap.average_heartrate,
+                        lap.max_heartrate,
+                        lap.average_watts,
+                        lap.average_cadence,
+                        lap.total_elevation_gain_m,
+                    )
+                    for lap in laps
+                ],
+            )
+        conn.execute("DELETE FROM activity_zones WHERE activity_id = ?", (activity.id,))
+        if zones:
+            conn.executemany(
+                "INSERT INTO activity_zones (activity_id, zone_type, data) VALUES (?, ?, ?)",
+                [(z.activity_id, z.zone_type, z.data) for z in zones],
+            )
+
+
+def has_complete_activity(conn: sqlite3.Connection, activity_id: int) -> bool:
+    """True si l'activité existe ET a au moins 1 stream ET au moins 1 lap.
+
+    Les zones sont optionnelles (Summit-only) → exclues du critère.
+    """
+    row = conn.execute(
+        """
+        SELECT
+            EXISTS(SELECT 1 FROM activities WHERE id = ?) AS has_act,
+            EXISTS(SELECT 1 FROM activity_streams WHERE activity_id = ?) AS has_str,
+            EXISTS(SELECT 1 FROM activity_laps WHERE activity_id = ?) AS has_lap
+        """,
+        (activity_id, activity_id, activity_id),
+    ).fetchone()
+    return bool(row["has_act"]) and bool(row["has_str"]) and bool(row["has_lap"])
+
+
+def start_sync(conn: sqlite3.Connection, sync_type: str) -> int:
+    """Insère une ligne sync_log avec started_at = now et status='running'. Retourne l'id."""
+    started_at = datetime.now(tz=UTC).isoformat()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO sync_log (started_at, sync_type, status) VALUES (?, ?, ?)",
+            (started_at, sync_type, "running"),
+        )
+    return int(cur.lastrowid or 0)
+
+
+def finish_sync(
+    conn: sqlite3.Connection,
+    sync_id: int,
+    status: str,
+    activities_fetched: int,
+    error_message: str | None = None,
+) -> None:
+    finished_at = datetime.now(tz=UTC).isoformat()
+    with conn:
+        conn.execute(
+            "UPDATE sync_log SET finished_at = ?, status = ?, activities_fetched = ?, "
+            "error_message = ? WHERE id = ?",
+            (finished_at, status, activities_fetched, error_message, sync_id),
+        )

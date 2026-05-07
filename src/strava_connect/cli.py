@@ -22,6 +22,7 @@ from strava_connect.db import (
     migrate,
     stats_by_sport,
 )
+from strava_connect.sync import sync_full
 
 
 @click.group()
@@ -99,3 +100,49 @@ def status() -> None:
             f"  profil athlète : poids={profile.weight_kg} kg, "
             f"FTP={profile.ftp_watts}, FCmax={profile.fc_max}"
         )
+
+
+@main.command()
+@click.option("--full", is_flag=True, help="Import complet (history_days = config).")
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Limite N activités max (utile pour smoke test).",
+)
+def sync(full: bool, limit: int | None) -> None:
+    """Synchronise les activités Strava dans la DB locale."""
+    if not full:
+        raise click.ClickException(
+            "La sync incrémentale arrive en Lot 3. Utilise `--full` pour le moment."
+        )
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    db_path = db_path_from_env()
+    tokens_path = token_path_from_env()
+
+    def _on_progress(n: int, name: str) -> None:
+        click.echo(f"  ↳ [{n}] {name}", err=True)
+
+    def _on_warn(msg: str) -> None:
+        click.echo(f"⚠ {msg}", err=True)
+
+    try:
+        fetched, status = sync_full(
+            config,
+            db_path,
+            tokens_path,
+            history_days=config.history_days,
+            limit=limit,
+            on_progress=_on_progress,
+            on_warn=_on_warn,
+        )
+    except AuthError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    click.echo(f"\n{fetched} activités importées (status={status})")
+    if status == "partial":
+        click.echo("→ Quota journalier atteint, relance demain pour finir.")

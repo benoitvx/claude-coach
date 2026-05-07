@@ -23,14 +23,14 @@
 
 ## Lot 2 — Import historique
 
-- [ ] **2.1** Implémenter le client API Strava (`client.py`) : wrapper httpx avec auth header, gestion des erreurs HTTP
-- [ ] **2.2** Implémenter le rate limiter : lecture des headers `X-ReadRateLimit-Usage`, pause automatique, respect des fenêtres 15 min
-- [ ] **2.3** Implémenter la récupération paginée des activités (`GET /athlete/activities`)
-- [ ] **2.4** Implémenter la récupération détaillée par activité : detail, streams, laps, zones
-- [ ] **2.5** Implémenter la logique de sync complète (`sync.py`) : orchestration, reprise après interruption, logging dans `sync_log`
-- [ ] **2.6** Commande CLI `strava-connect sync --full` : import complet avec barre de progression et `caffeinate` (macOS) pour empêcher la mise en veille
-- [ ] **2.7** Tests unitaires : client API (mock HTTP), rate limiter (simulation headers), sync logic, reprise après interruption
-- [ ] **2.8** Tests intégration : `sync --full` complet avec faux serveur (fixtures multi-types : run, ride, swim), vérification des données en DB
+- [x] **2.1** Implémenter le client API Strava (`client.py`) : wrapper httpx avec auth header, gestion des erreurs HTTP
+- [x] **2.2** Implémenter le rate limiter : lecture des headers `X-ReadRateLimit-Usage`, pause automatique, respect des fenêtres 15 min
+- [x] **2.3** Implémenter la récupération paginée des activités (`GET /athlete/activities`)
+- [x] **2.4** Implémenter la récupération détaillée par activité : detail, streams, laps, zones
+- [x] **2.5** Implémenter la logique de sync complète (`sync.py`) : orchestration, reprise après interruption, logging dans `sync_log`
+- [x] **2.6** Commande CLI `strava-connect sync --full` : import complet avec barre de progression et `caffeinate` (macOS) pour empêcher la mise en veille
+- [x] **2.7** Tests unitaires : client API (mock HTTP), rate limiter (simulation headers), sync logic, reprise après interruption
+- [x] **2.8** Tests intégration : `sync --full` complet avec faux serveur (fixtures multi-types : run, ride, swim), vérification des données en DB
 
 ## Lot 3 — Sync incrémentale
 
