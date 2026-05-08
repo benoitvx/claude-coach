@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from contextlib import closing
 from datetime import UTC, datetime
+from typing import Literal, cast
 
 import click
 
@@ -14,14 +16,17 @@ from strava_connect.auth import (
     token_path_from_env,
 )
 from strava_connect.coach import (
+    KNOWN_FAMILIES,
     MatchResult,
     match_all_planned_sessions,
     session_deltas,
+    sport_types_in_family,
 )
 from strava_connect.db import (
     GOAL_STATUSES,
     PLAN_STATUSES,
     SESSION_STATUSES,
+    aggregate_activities,
     connect,
     count_activities,
     db_path_from_env,
@@ -35,6 +40,7 @@ from strava_connect.db import (
     insert_goal,
     insert_planned_session,
     insert_training_plan,
+    list_activities,
     list_goals,
     list_planned_sessions,
     list_training_plans,
@@ -45,6 +51,7 @@ from strava_connect.db import (
     update_planned_session_status,
 )
 from strava_connect.models import Activity, PlannedSession
+from strava_connect.serializers import activity_to_dict, bucket_to_dict
 from strava_connect.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
 
 
@@ -702,3 +709,199 @@ def plan_session_done(session_id: int) -> None:
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
     click.echo(f"OK — séance #{s.id} marquée 'done'")
+
+
+# --- Sous-commandes activity (Lot 5c) ---------------------------------------
+
+
+def _resolve_sport_types(sport: str | None, family: str | None) -> list[str] | None:
+    if sport is not None:
+        return [sport]
+    if family is not None:
+        return sport_types_in_family(family)
+    return None
+
+
+def _emit_json(data: object) -> None:
+    """Écrit un objet en JSON stable (clés triées, indenté, ASCII échappé non forcé)."""
+    click.echo(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+@main.group()
+def activity() -> None:
+    """Lecture des activités importées (filtres, agrégats)."""
+
+
+@activity.command("list")
+@click.option("--from", "since", type=DATE_TYPE, default=None, help="Date min (YYYY-MM-DD)")
+@click.option("--to", "until", type=DATE_TYPE, default=None, help="Date max (YYYY-MM-DD)")
+@click.option("--sport", default=None, help="Sport Strava exact (Run, Ride, ...)")
+@click.option(
+    "--family",
+    type=click.Choice(KNOWN_FAMILIES),
+    default=None,
+    help="Famille de sports (run, ride, swim, ...)",
+)
+@click.option("--limit", type=int, default=None, help="Limite de lignes")
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def activity_list(
+    since: datetime | None,
+    until: datetime | None,
+    sport: str | None,
+    family: str | None,
+    limit: int | None,
+    json_out: bool,
+) -> None:
+    """Liste les activités (les plus récentes en tête)."""
+    sport_types = _resolve_sport_types(sport, family)
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        activities = list_activities(
+            conn,
+            since=since.date() if since else None,
+            until=until.date() if until else None,
+            sport_types=sport_types,
+            limit=limit,
+        )
+
+    if json_out:
+        _emit_json([activity_to_dict(a) for a in activities])
+        return
+
+    if not activities:
+        click.echo("Aucune activité.")
+        return
+    click.echo(
+        f"{'#':>10}  {'Date':<10}  {'Sport':<14}  {'Durée':>6}  "
+        f"{'Dist':>7}  {'D+':>5}  {'FCmoy':>5}  Nom"
+    )
+    click.echo("-" * 90)
+    for a in activities:
+        date_local = (a.start_date_local or "")[:10] or "-"
+        dur = f"{a.moving_time_s // 60}min" if a.moving_time_s else "-"
+        dist = f"{a.distance_m / 1000:.1f}km" if a.distance_m else "-"
+        elev = f"{int(a.total_elevation_gain_m)}m" if a.total_elevation_gain_m else "-"
+        hr = f"{int(a.average_heartrate)}" if a.average_heartrate else "-"
+        click.echo(
+            f"{a.id:>10}  {date_local:<10}  {(a.sport_type or '-'):<14}  "
+            f"{dur:>6}  {dist:>7}  {elev:>5}  {hr:>5}  {(a.name or '')[:50]}"
+        )
+
+
+@activity.command("show")
+@click.argument("activity_id", type=int)
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def activity_show(activity_id: int, json_out: bool) -> None:
+    """Affiche une activité (sans streams ni laps)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        a = get_activity(conn, activity_id)
+    if a is None:
+        raise click.ClickException(f"Aucune activité #{activity_id}")
+
+    if json_out:
+        _emit_json(activity_to_dict(a))
+        return
+
+    click.echo(f"Activité #{a.id} — {a.name or '(sans nom)'}")
+    click.echo(f"  sport          : {a.sport_type or '-'}")
+    click.echo(
+        f"  date           : {a.start_date_local or '-'} (local) / {a.start_date or '-'} (UTC)"
+    )
+    if a.timezone:
+        click.echo(f"  timezone       : {a.timezone}")
+    if a.distance_m is not None:
+        click.echo(f"  distance       : {a.distance_m / 1000:.2f} km")
+    if a.moving_time_s is not None:
+        click.echo(f"  durée mouvement: {a.moving_time_s // 60} min")
+    if a.elapsed_time_s is not None:
+        click.echo(f"  durée totale   : {a.elapsed_time_s // 60} min")
+    if a.total_elevation_gain_m is not None:
+        click.echo(f"  D+             : {a.total_elevation_gain_m:.0f} m")
+    if a.average_speed_ms is not None:
+        click.echo(f"  vitesse moy    : {a.average_speed_ms * 3.6:.2f} km/h")
+    if a.max_speed_ms is not None:
+        click.echo(f"  vitesse max    : {a.max_speed_ms * 3.6:.2f} km/h")
+    if a.average_heartrate is not None:
+        max_hr = int(a.max_heartrate) if a.max_heartrate is not None else "-"
+        click.echo(f"  FC moy/max     : {int(a.average_heartrate)} / {max_hr}")
+    if a.average_watts is not None:
+        click.echo(f"  puissance moy  : {int(a.average_watts)} W")
+    if a.calories is not None:
+        click.echo(f"  calories       : {int(a.calories)}")
+    if a.device_name:
+        click.echo(f"  appareil       : {a.device_name}")
+    if a.description:
+        click.echo(f"  description    : {a.description}")
+
+
+@activity.command("stats")
+@click.option("--from", "since", type=DATE_TYPE, default=None, help="Date min (YYYY-MM-DD)")
+@click.option("--to", "until", type=DATE_TYPE, default=None, help="Date max (YYYY-MM-DD)")
+@click.option("--sport", default=None, help="Sport Strava exact")
+@click.option(
+    "--family",
+    type=click.Choice(KNOWN_FAMILIES),
+    default=None,
+    help="Famille de sports",
+)
+@click.option(
+    "--by",
+    "group_by",
+    type=click.Choice(["sport", "week", "month"]),
+    default="sport",
+    show_default=True,
+    help="Clé d'agrégation",
+)
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def activity_stats(
+    since: datetime | None,
+    until: datetime | None,
+    sport: str | None,
+    family: str | None,
+    group_by: str,
+    json_out: bool,
+) -> None:
+    """Agrège les activités par sport, semaine ou mois."""
+    sport_types = _resolve_sport_types(sport, family)
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        buckets = aggregate_activities(
+            conn,
+            group_by=cast(Literal["sport", "week", "month"], group_by),
+            since=since.date() if since else None,
+            until=until.date() if until else None,
+            sport_types=sport_types,
+        )
+
+    if json_out:
+        total = {
+            "count": sum(b.count for b in buckets),
+            "distance_m": sum(b.distance_m for b in buckets),
+            "moving_time_s": sum(b.moving_time_s for b in buckets),
+            "elevation_gain_m": sum(b.elevation_gain_m for b in buckets),
+        }
+        _emit_json(
+            {
+                "group_by": group_by,
+                "buckets": [bucket_to_dict(b) for b in buckets],
+                "total": total,
+            }
+        )
+        return
+
+    if not buckets:
+        click.echo("Aucune activité dans la fenêtre.")
+        return
+    click.echo(f"{'Bucket':<14}  {'Activités':>9}  {'Distance':>10}  {'Durée':>10}  {'D+':>7}")
+    click.echo("-" * 60)
+    for b in buckets:
+        click.echo(
+            f"{b.key:<14}  {b.count:>9}  "
+            f"{b.distance_m / 1000:>7.1f} km  "
+            f"{b.moving_time_s // 60:>7} min  "
+            f"{int(b.elevation_gain_m):>5} m"
+        )

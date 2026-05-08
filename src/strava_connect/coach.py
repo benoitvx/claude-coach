@@ -54,6 +54,18 @@ def matching_sport_types(sport_type: str) -> list[str]:
     return matches
 
 
+def sport_types_in_family(family: str) -> list[str]:
+    """Liste des sport_types Strava connus dans la famille canonique demandée.
+
+    Familles supportées : voir `SPORT_FAMILIES` (run, ride, swim, walk, workout, yoga).
+    Famille inconnue → liste vide (aucun match).
+    """
+    return [s for s, f in SPORT_FAMILIES.items() if f == family]
+
+
+KNOWN_FAMILIES: tuple[str, ...] = tuple(sorted(set(SPORT_FAMILIES.values())))
+
+
 @dataclass(frozen=True)
 class MatchResult:
     session: PlannedSession
@@ -184,10 +196,12 @@ def session_deltas(session: PlannedSession, activity: Activity) -> dict[str, flo
 
 # Re-exports utiles pour les modules consommateurs (cli.py).
 __all__ = [
+    "KNOWN_FAMILIES",
     "MatchResult",
     "SPORT_FAMILIES",
     "match_all_planned_sessions",
     "matching_sport_types",
     "session_deltas",
     "sport_family",
+    "sport_types_in_family",
 ]

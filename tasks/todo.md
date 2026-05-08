@@ -15,10 +15,10 @@ Plan complet : `~/.claude/plans/keen-seeking-marshmallow.md`.
 - [x] `make validate` puis commit `feat: Helpers DB list/aggregate activités (Lot 5c.1)`
 
 **5c.2 — Commandes `strava-connect activity *`**
-- [ ] Nouveau groupe `activity` dans `cli.py` : `list`, `show`, `stats`
-- [ ] Flags texte + `--json` (sortie JSON stable, ISO dates, snake_case)
-- [ ] Tests dans `tests/test_cli_activity.py` (incluant `json.loads(result.output)`)
-- [ ] `make validate` puis commit `feat: Commandes CLI activity list/show/stats (Lot 5c.2)`
+- [x] Nouveau groupe `activity` dans `cli.py` : `list`, `show`, `stats`
+- [x] Flags texte + `--json` (sortie JSON stable, ISO dates, snake_case)
+- [x] Tests dans `tests/test_cli_activity.py` (incluant `json.loads(result.output)`)
+- [x] `make validate` puis commit `feat: Commandes CLI activity list/show/stats (Lot 5c.2)`
 
 **5c.3 — Flag `--json` sur les lectures existantes**
 - [ ] `goal list/show`, `plan list/show/match`, `plan session list`, `athlete show/history`, `status`
