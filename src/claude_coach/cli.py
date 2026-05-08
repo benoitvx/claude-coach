@@ -7,7 +7,7 @@ from typing import Literal, cast
 
 import click
 
-from strava_connect.auth import (
+from claude_coach.auth import (
     AuthError,
     ConfigError,
     load_config,
@@ -15,14 +15,14 @@ from strava_connect.auth import (
     start_oauth_flow,
     token_path_from_env,
 )
-from strava_connect.coach import (
+from claude_coach.coach import (
     KNOWN_FAMILIES,
     MatchResult,
     match_all_planned_sessions,
     session_deltas,
     sport_types_in_family,
 )
-from strava_connect.db import (
+from claude_coach.db import (
     GOAL_STATUSES,
     PLAN_STATUSES,
     SESSION_STATUSES,
@@ -50,8 +50,8 @@ from strava_connect.db import (
     update_goal_status,
     update_planned_session_status,
 )
-from strava_connect.models import Activity, PlannedSession
-from strava_connect.serializers import (
+from claude_coach.models import Activity, PlannedSession
+from claude_coach.serializers import (
     activity_to_dict,
     athlete_metrics_to_dict,
     bucket_to_dict,
@@ -60,7 +60,7 @@ from strava_connect.serializers import (
     sync_log_to_dict,
     training_plan_to_dict,
 )
-from strava_connect.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
+from claude_coach.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
 
 
 def _emit_json(data: object) -> None:
@@ -157,7 +157,7 @@ def status(json_out: bool) -> None:
 
     click.echo(f"\nTokens       : {tokens_path}")
     if tokens is None:
-        click.echo("  absent — lance `strava-connect auth` pour démarrer.")
+        click.echo("  absent — lance `claude-coach auth` pour démarrer.")
         return
 
     remaining = tokens.expires_at - datetime.now(tz=UTC)
@@ -173,7 +173,7 @@ def status(json_out: bool) -> None:
         migrate(conn)
         metrics = get_latest_metrics(conn, tokens.athlete_id)
     if metrics is None:
-        click.echo("  profil athlète : aucun (saisis avec `strava-connect athlete set ...`)")
+        click.echo("  profil athlète : aucun (saisis avec `claude-coach athlete set ...`)")
     else:
         click.echo(
             f"  profil athlète : poids={metrics.weight_kg} kg, "
@@ -258,7 +258,7 @@ def sync(full: bool, limit: int | None, lookback_days: int) -> None:
 def _require_athlete_id() -> int:
     tokens = load_tokens(token_path_from_env())
     if tokens is None:
-        raise click.ClickException("Aucun token stocké. Lance d'abord `strava-connect auth`.")
+        raise click.ClickException("Aucun token stocké. Lance d'abord `claude-coach auth`.")
     return tokens.athlete_id
 
 
@@ -340,7 +340,7 @@ def athlete_show(json_out: bool) -> None:
         return
 
     if metrics is None:
-        click.echo("Aucune métrique saisie. Utilise `strava-connect athlete set ...`")
+        click.echo("Aucune métrique saisie. Utilise `claude-coach athlete set ...`")
         return
 
     click.echo(f"Dernière entrée ({metrics.recorded_at.isoformat()}) :")

@@ -1,8 +1,8 @@
-# Spécifications — strava-connect
+# Spécifications — claude-coach
 
 ## 1. Vue d'ensemble
 
-**strava-connect** est un connecteur CLI qui synchronise les activités sportives depuis l'API Strava vers une base SQLite locale. Il sert de source de données pour un futur agent coach sportif IA opérant dans Claude Code.
+**claude-coach** est un connecteur CLI qui synchronise les activités sportives depuis l'API Strava vers une base SQLite locale. Il sert de source de données pour un futur agent coach sportif IA opérant dans Claude Code.
 
 ### Utilisateur cible
 
@@ -37,7 +37,7 @@ L'hébergement mutualisé Infomaniak est PHP/MySQL uniquement. Python n'y est pa
 
 ### Flow
 
-1. L'utilisateur lance `strava-connect auth`
+1. L'utilisateur lance `claude-coach auth`
 2. Le CLI ouvre le navigateur vers `https://www.strava.com/oauth/authorize` avec les paramètres :
    - `client_id` (depuis config)
    - `redirect_uri=http://localhost:8000/callback`
@@ -219,8 +219,8 @@ L'import complet dure plusieurs heures réparties sur 2 jours. Pour empêcher la
 ### Sync planifiée (macOS)
 
 `scripts/install-launchd-sync.sh` installe une tâche **launchd** qui exécute
-`strava-connect sync --full` chaque jour. Préféré à cron parce que la plist
-est éditable, les logs sont centralisés (`~/Library/Logs/strava-connect/`)
+`claude-coach sync --full` chaque jour. Préféré à cron parce que la plist
+est éditable, les logs sont centralisés (`~/Library/Logs/claude-coach/`)
 et l'agent est rechargeable de façon idempotente.
 
 Schedule par défaut du script : **02:05 heure locale** — juste après le reset
@@ -282,10 +282,10 @@ Majorité de la couverture. Testent la logique métier isolément avec des mocks
 ### Tests d'intégration (pytest + faux serveur HTTP)
 
 Testent les commandes CLI de bout en bout avec un faux serveur HTTP local qui simule l'API Strava :
-- `strava-connect auth` : flow OAuth2 complet (faux Strava → callback → tokens en DB)
-- `strava-connect sync --full` : pagination + détail + streams → vérifier données en DB
-- `strava-connect sync` : sync incrémentale, ne re-télécharge pas les activités existantes
-- `strava-connect status` : affichage correct après un sync
+- `claude-coach auth` : flow OAuth2 complet (faux Strava → callback → tokens en DB)
+- `claude-coach sync --full` : pagination + détail + streams → vérifier données en DB
+- `claude-coach sync` : sync incrémentale, ne re-télécharge pas les activités existantes
+- `claude-coach status` : affichage correct après un sync
 - Rate limiting : vérifier que le client pause quand les headers indiquent une limite proche
 
 Le faux serveur retourne des fixtures JSON réalistes (activités de différents types : run, ride, swim, multisport).
@@ -332,7 +332,7 @@ Permettre à l'utilisateur de suivre le programme directement sur sa montre ou d
 Migration 003 (lot 5a) introduit trois tables qui supportent la planification
 d'entraînement et serviront de base à l'agent coach (lot 5c/5d). Le matching
 automatique `planned_sessions.actual_activity_id` ↔ `activities.id` est livré
-en lot 5b via le module `coach.py` et la commande `strava-connect plan match`.
+en lot 5b via le module `coach.py` et la commande `claude-coach plan match`.
 
 ### Table `goals`
 
@@ -398,21 +398,21 @@ Index : `idx_planned_sessions_plan_date(training_plan_id, planned_date)`,
 
 ```bash
 # Objectifs
-strava-connect goal add --name <NAME> [--target-date YYYY-MM-DD] [--discipline ...] [--description ...] [--success-criteria ...]
-strava-connect goal list [--status active|completed|abandoned]
-strava-connect goal show <ID>
-strava-connect goal complete <ID>
+claude-coach goal add --name <NAME> [--target-date YYYY-MM-DD] [--discipline ...] [--description ...] [--success-criteria ...]
+claude-coach goal list [--status active|completed|abandoned]
+claude-coach goal show <ID>
+claude-coach goal complete <ID>
 
 # Plans d'entraînement
-strava-connect plan add --name <NAME> --start YYYY-MM-DD --end YYYY-MM-DD [--goal-id <ID>] [--notes ...]
-strava-connect plan list [--goal-id <ID>] [--status ...]
-strava-connect plan show <ID>          # affiche plan + ses planned_sessions (+ ligne réalisé si match)
-strava-connect plan match [--plan-id <ID>] [--dry-run]  # apparie séances ↔ activités (lot 5b)
+claude-coach plan add --name <NAME> --start YYYY-MM-DD --end YYYY-MM-DD [--goal-id <ID>] [--notes ...]
+claude-coach plan list [--goal-id <ID>] [--status ...]
+claude-coach plan show <ID>          # affiche plan + ses planned_sessions (+ ligne réalisé si match)
+claude-coach plan match [--plan-id <ID>] [--dry-run]  # apparie séances ↔ activités (lot 5b)
 
 # Séances planifiées (sous-groupe `plan session`)
-strava-connect plan session add --plan-id <ID> --date YYYY-MM-DD --sport <SPORT> [--session-type ...] [--duration <S>] [--distance <M>] [--intensity ...] [--description ...]
-strava-connect plan session list --plan-id <ID> [--status ...]
-strava-connect plan session done <ID>  # marquage manuel sans lien vers une activité Strava
+claude-coach plan session add --plan-id <ID> --date YYYY-MM-DD --sport <SPORT> [--session-type ...] [--duration <S>] [--distance <M>] [--intensity ...] [--description ...]
+claude-coach plan session list --plan-id <ID> [--status ...]
+claude-coach plan session done <ID>  # marquage manuel sans lien vers une activité Strava
 ```
 
 Validation des enums : `click.Choice(...)` côté CLI seulement, pas de CHECK SQL
@@ -421,7 +421,7 @@ Validation des enums : `click.Choice(...)` côté CLI seulement, pas de CHECK SQ
 
 ### Matching planifié vs réalisé (lot 5b)
 
-Le module `src/strava_connect/coach.py` apparie chaque `planned_session` en
+Le module `src/claude_coach/coach.py` apparie chaque `planned_session` en
 statut `planned` à l'`Activity` la plus probable :
 
 - **Familles de sport** (table `SPORT_FAMILIES` dans `coach.py`) : `Run` / `TrailRun` / `VirtualRun` → famille `run` ; `Ride` / `VirtualRide` / `GravelRide` / `EBikeRide` / `MountainBikeRide` → `ride` ; `Walk` / `Hike` → `walk` ; etc. Les sports non listés sont leur propre famille (`sport_type.lower()`).
@@ -491,5 +491,5 @@ n'ont pas de `--json` — l'agent se base sur le code de retour.
 ### Stabilité
 
 Tout changement de format JSON doit être signalé dans le message de commit.
-La sérialisation est centralisée dans `src/strava_connect/serializers.py`
+La sérialisation est centralisée dans `src/claude_coach/serializers.py`
 (une fonction par modèle).

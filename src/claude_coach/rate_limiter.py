@@ -4,7 +4,7 @@ import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 
-from strava_connect.models import RateLimitState
+from claude_coach.models import RateLimitState
 
 
 class DailyLimitReached(Exception):

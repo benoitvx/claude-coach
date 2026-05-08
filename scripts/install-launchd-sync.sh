@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installe une tâche launchd qui lance `strava-connect sync --full` chaque jour.
+# Installe une tâche launchd qui lance `claude-coach sync --full` chaque jour.
 #
 # - Schedule par défaut : tous les jours à 02:05 (heure locale).
 #   Le quota Strava reset à 00:00 UTC = 02:00 Paris ; 02:05 = quota frais
@@ -9,7 +9,7 @@
 #
 # Override : SYNC_HOUR=12 SYNC_MINUTE=30 bash scripts/install-launchd-sync.sh
 #
-# - Logs dans ~/Library/Logs/strava-connect/sync.{out,err}.log
+# - Logs dans ~/Library/Logs/claude-coach/sync.{out,err}.log
 # - Idempotent : relancer le script remplace l'agent existant.
 
 set -euo pipefail
@@ -19,9 +19,9 @@ if [[ "$(uname)" != "Darwin" ]]; then
   exit 1
 fi
 
-LABEL="com.strava-connect.sync"
+LABEL="com.claude-coach.sync"
 PLIST_PATH="$HOME/Library/LaunchAgents/$LABEL.plist"
-LOG_DIR="$HOME/Library/Logs/strava-connect"
+LOG_DIR="$HOME/Library/Logs/claude-coach"
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 UV_BIN="$(command -v uv || true)"
@@ -47,7 +47,7 @@ cat > "$PLIST_PATH" <<PLIST
   <array>
     <string>$UV_BIN</string>
     <string>run</string>
-    <string>strava-connect</string>
+    <string>claude-coach</string>
     <string>sync</string>
     <string>--full</string>
   </array>
@@ -86,7 +86,7 @@ echo "✓ Schedule : tous les jours à $(printf '%02d:%02d' $HOUR $MINUTE) (loca
 echo "✓ Logs    : $LOG_DIR/sync.{out,err}.log"
 echo
 echo "Pour vérifier que l'agent est chargé :"
-echo "  launchctl list | grep strava"
+echo "  launchctl list | grep claude-coach"
 echo
 echo "Pour le désinstaller :"
 echo "  launchctl unload \"$PLIST_PATH\" && rm \"$PLIST_PATH\""

@@ -1,4 +1,4 @@
-from strava_connect import __version__
+from claude_coach import __version__
 
 
 def test_version_is_set() -> None:

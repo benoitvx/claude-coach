@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from strava_connect.db import connect, insert_full_activity, migrate, upsert_athlete
-from strava_connect.models import Activity, Athlete, Config
+from claude_coach.db import connect, insert_full_activity, migrate, upsert_athlete
+from claude_coach.models import Activity, Athlete, Config
 
 
 @pytest.fixture

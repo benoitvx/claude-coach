@@ -6,8 +6,8 @@ from pathlib import Path
 from click.testing import CliRunner
 from pytest import MonkeyPatch
 
-from strava_connect.cli import main
-from strava_connect.db import (
+from claude_coach.cli import main
+from claude_coach.db import (
     connect,
     get_goal,
     get_planned_session,
@@ -18,7 +18,7 @@ from strava_connect.db import (
     migrate,
     upsert_athlete,
 )
-from strava_connect.models import Activity, Athlete
+from claude_coach.models import Activity, Athlete
 
 
 def _setup_env(monkeypatch: MonkeyPatch, tmp_path: Path) -> Path:

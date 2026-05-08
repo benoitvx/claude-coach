@@ -43,9 +43,9 @@ Override de l'heure via env vars :
 SYNC_HOUR=12 SYNC_MINUTE=30 bash scripts/install-launchd-sync.sh
 ```
 
-Le script auto-détecte le chemin de `uv`, écrit `~/Library/LaunchAgents/com.strava-connect.sync.plist`
+Le script auto-détecte le chemin de `uv`, écrit `~/Library/LaunchAgents/com.claude-coach.sync.plist`
 et le charge via `launchctl`. Il est idempotent : relancer remplace l'agent
-existant. Logs dans `~/Library/Logs/strava-connect/sync.{out,err}.log`.
+existant. Logs dans `~/Library/Logs/claude-coach/sync.{out,err}.log`.
 
 Tip : pendant l'import historique initial (le Mac peut être laissé allumé la
 nuit), 02:05 est idéal. Une fois l'historique fini, basculer vers une heure
@@ -64,13 +64,13 @@ Le créneau s'adapte automatiquement été/hiver.
 
 Pour tester sans attendre :
 ```bash
-launchctl start com.strava-connect.sync
+launchctl start com.claude-coach.sync
 ```
 
 Désinstallation :
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.strava-connect.sync.plist
-rm ~/Library/LaunchAgents/com.strava-connect.sync.plist
+launchctl unload ~/Library/LaunchAgents/com.claude-coach.sync.plist
+rm ~/Library/LaunchAgents/com.claude-coach.sync.plist
 ```
 
 **Note** : le quota lecture Strava reset à 00:00 UTC = 02:00 Paris. Une exécution

@@ -10,9 +10,9 @@ import pytest
 from pytest import MonkeyPatch
 from pytest_httpserver import HTTPServer
 
-from strava_connect import auth
-from strava_connect.auth import AuthError, _wait_for_callback_server, start_oauth_flow
-from strava_connect.models import Config
+from claude_coach import auth
+from claude_coach.auth import AuthError, _wait_for_callback_server, start_oauth_flow
+from claude_coach.models import Config
 
 
 def _free_port() -> int:

@@ -8,9 +8,9 @@ from typing import Any
 
 import httpx
 
-from strava_connect.auth import AuthError, get_valid_tokens
-from strava_connect.models import Config
-from strava_connect.rate_limiter import RateLimiter
+from claude_coach.auth import AuthError, get_valid_tokens
+from claude_coach.models import Config
+from claude_coach.rate_limiter import RateLimiter
 
 DEFAULT_STREAMS = (
     "time",
@@ -159,7 +159,7 @@ class StravaClient:
 
             if response.status_code == 401:
                 raise AuthError(
-                    "401 reçu de Strava — relance `strava-connect auth` pour ré-autoriser."
+                    "401 reçu de Strava — relance `claude-coach auth` pour ré-autoriser."
                 )
             if response.status_code == 429:
                 self._rate_limiter.wait_after_429(response.headers, sleep=self._sleep)

@@ -6,7 +6,7 @@ from pathlib import Path
 from click.testing import CliRunner
 from pytest import MonkeyPatch
 
-from strava_connect.cli import main
+from claude_coach.cli import main
 
 
 def _setup_config(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
@@ -30,8 +30,8 @@ def test_sync_default_calls_incremental(monkeypatch: MonkeyPatch, tmp_path: Path
         calls["full_called"] = True
         return (0, "success")
 
-    monkeypatch.setattr("strava_connect.cli.sync_incremental", fake_incremental)
-    monkeypatch.setattr("strava_connect.cli.sync_full", fake_full)
+    monkeypatch.setattr("claude_coach.cli.sync_incremental", fake_incremental)
+    monkeypatch.setattr("claude_coach.cli.sync_full", fake_full)
 
     result = CliRunner().invoke(main, ["sync"])
     assert result.exit_code == 0, result.output
@@ -54,8 +54,8 @@ def test_sync_full_flag_calls_full(monkeypatch: MonkeyPatch, tmp_path: Path) -> 
         called["incr"] = True
         return (0, "success")
 
-    monkeypatch.setattr("strava_connect.cli.sync_full", fake_full)
-    monkeypatch.setattr("strava_connect.cli.sync_incremental", fake_incremental)
+    monkeypatch.setattr("claude_coach.cli.sync_full", fake_full)
+    monkeypatch.setattr("claude_coach.cli.sync_incremental", fake_incremental)
 
     result = CliRunner().invoke(main, ["sync", "--full"])
     assert result.exit_code == 0, result.output
@@ -71,7 +71,7 @@ def test_sync_lookback_days_propagated(monkeypatch: MonkeyPatch, tmp_path: Path)
         captured.update(kwargs)
         return (0, "success")
 
-    monkeypatch.setattr("strava_connect.cli.sync_incremental", fake_incremental)
+    monkeypatch.setattr("claude_coach.cli.sync_incremental", fake_incremental)
 
     result = CliRunner().invoke(main, ["sync", "--lookback-days", "21"])
     assert result.exit_code == 0, result.output
@@ -84,7 +84,7 @@ def test_sync_partial_status_prints_resume_hint(monkeypatch: MonkeyPatch, tmp_pa
     def fake_incremental(*args: object, **kwargs: object) -> tuple[int, str]:
         return (12, "partial")
 
-    monkeypatch.setattr("strava_connect.cli.sync_incremental", fake_incremental)
+    monkeypatch.setattr("claude_coach.cli.sync_incremental", fake_incremental)
 
     result = CliRunner().invoke(main, ["sync"])
     assert result.exit_code == 0

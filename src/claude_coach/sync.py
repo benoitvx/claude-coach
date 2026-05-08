@@ -10,8 +10,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from strava_connect.client import StravaClient
-from strava_connect.db import (
+from claude_coach.client import StravaClient
+from claude_coach.db import (
     connect,
     finish_sync,
     has_complete_activity,
@@ -20,8 +20,8 @@ from strava_connect.db import (
     start_sync,
     upsert_athlete,
 )
-from strava_connect.models import Activity, Athlete, Config, Lap, Stream, Zone
-from strava_connect.rate_limiter import DailyLimitReached
+from claude_coach.models import Activity, Athlete, Config, Lap, Stream, Zone
+from claude_coach.rate_limiter import DailyLimitReached
 
 ProgressFn = Callable[[int, str], None]
 

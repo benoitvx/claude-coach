@@ -9,12 +9,12 @@ import pytest
 from pytest_httpserver import HTTPServer
 from werkzeug.wrappers import Request, Response
 
-from strava_connect.auth import save_tokens
-from strava_connect.client import StravaClient
-from strava_connect.db import connect, count_activities, get_last_sync, has_complete_activity
-from strava_connect.models import Config, RateLimitState, Tokens
-from strava_connect.rate_limiter import DailyLimitReached, RateLimiter
-from strava_connect.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
+from claude_coach.auth import save_tokens
+from claude_coach.client import StravaClient
+from claude_coach.db import connect, count_activities, get_last_sync, has_complete_activity
+from claude_coach.models import Config, RateLimitState, Tokens
+from claude_coach.rate_limiter import DailyLimitReached, RateLimiter
+from claude_coach.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
 
 
 @pytest.fixture(autouse=True)
@@ -383,8 +383,8 @@ def _seed_activity_with_date(
     db_path: Path, activity_id: int, start_date: str, name: str = "Seed"
 ) -> None:
     """Insère une activité complète directement en DB pour simuler un état post-import."""
-    from strava_connect.db import insert_full_activity, migrate, upsert_athlete
-    from strava_connect.models import Activity, Athlete, Lap, Stream
+    from claude_coach.db import insert_full_activity, migrate, upsert_athlete
+    from claude_coach.models import Activity, Athlete, Lap, Stream
 
     with connect(db_path) as conn:
         migrate(conn)

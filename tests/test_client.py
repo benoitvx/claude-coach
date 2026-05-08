@@ -8,9 +8,9 @@ import pytest
 from pytest import MonkeyPatch
 from pytest_httpserver import HTTPServer
 
-from strava_connect.auth import AuthError, save_tokens
-from strava_connect.client import DEFAULT_STREAMS, MAX_ATTEMPTS, StravaClient
-from strava_connect.models import Config, Tokens
+from claude_coach.auth import AuthError, save_tokens
+from claude_coach.client import DEFAULT_STREAMS, MAX_ATTEMPTS, StravaClient
+from claude_coach.models import Config, Tokens
 
 
 @pytest.fixture

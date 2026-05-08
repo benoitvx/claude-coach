@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from strava_connect.rate_limiter import DailyLimitReached, RateLimiter, _next_quarter_hour
+from claude_coach.rate_limiter import DailyLimitReached, RateLimiter, _next_quarter_hour
 
 
 def test_parse_headers_nominal() -> None:

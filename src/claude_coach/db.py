@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal
 
-from strava_connect.models import (
+from claude_coach.models import (
     Activity,
     ActivityBucket,
     Athlete,

@@ -33,35 +33,35 @@ make sync              # Lancer la synchro Strava (équivalent CLI)
 
 ```bash
 # Auth & sync (lots 1-3)
-strava-connect auth           # Lancer le flow OAuth2 (une seule fois)
-strava-connect sync --full    # Import complet historique (2 ans)
-strava-connect sync           # Sync incrémentale (nouvelles activités)
-strava-connect status         # État de la DB et dernière sync
+claude-coach auth           # Lancer le flow OAuth2 (une seule fois)
+claude-coach sync --full    # Import complet historique (2 ans)
+claude-coach sync           # Sync incrémentale (nouvelles activités)
+claude-coach status         # État de la DB et dernière sync
 
 # Données athlète historisées (lot 4)
-strava-connect athlete set --weight 75 --ftp 260 --fc-max 190 --fc-repos 48 --vma 17.5
-strava-connect athlete show
-strava-connect athlete history [--limit N]
+claude-coach athlete set --weight 75 --ftp 260 --fc-max 190 --fc-repos 48 --vma 17.5
+claude-coach athlete show
+claude-coach athlete history [--limit N]
 
 # Objectifs et planification (lot 5a)
-strava-connect goal add --name <NAME> [--target-date YYYY-MM-DD] [--discipline ...]
-strava-connect goal list [--status ...]
-strava-connect goal show <ID>
-strava-connect goal complete <ID>
+claude-coach goal add --name <NAME> [--target-date YYYY-MM-DD] [--discipline ...]
+claude-coach goal list [--status ...]
+claude-coach goal show <ID>
+claude-coach goal complete <ID>
 
-strava-connect plan add --name <NAME> --start <DATE> --end <DATE> [--goal-id <ID>]
-strava-connect plan list [--goal-id <ID>] [--status ...]
-strava-connect plan show <ID>
-strava-connect plan match [--plan-id <ID>] [--dry-run]   # apparie séances ↔ activités (lot 5b)
+claude-coach plan add --name <NAME> --start <DATE> --end <DATE> [--goal-id <ID>]
+claude-coach plan list [--goal-id <ID>] [--status ...]
+claude-coach plan show <ID>
+claude-coach plan match [--plan-id <ID>] [--dry-run]   # apparie séances ↔ activités (lot 5b)
 
-strava-connect plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swim|...> [opts]
-strava-connect plan session list --plan-id <ID> [--status ...]
-strava-connect plan session done <ID>
+claude-coach plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swim|...> [opts]
+claude-coach plan session list --plan-id <ID> [--status ...]
+claude-coach plan session done <ID>
 
 # Lecture activités pour l'agent coach (lot 5c)
-strava-connect activity list  [--from <DATE>] [--to <DATE>] [--sport ...] [--family run|ride|swim|...] [--limit N]
-strava-connect activity show  <ID>
-strava-connect activity stats [--from <DATE>] [--to <DATE>] [--sport ...] [--family ...] [--by sport|week|month]
+claude-coach activity list  [--from <DATE>] [--to <DATE>] [--sport ...] [--family run|ride|swim|...] [--limit N]
+claude-coach activity show  <ID>
+claude-coach activity stats [--from <DATE>] [--to <DATE>] [--sport ...] [--family ...] [--by sport|week|month]
 ```
 
 Toutes les commandes de lecture (`status`, `goal list/show`, `plan list/show/match`,
@@ -73,7 +73,7 @@ jamais omis). Conventions détaillées dans `specs.md` §11.
 
 Le repo embarque un subagent Claude Code dans `.claude/agents/coach.md`.
 Il joue le rôle de coach sportif personnel : lit la DB locale via la CLI
-`strava-connect`, analyse la charge, propose des plans périodisés vers les
+`claude-coach`, analyse la charge, propose des plans périodisés vers les
 objectifs (Swim&Run sept 2026, Trail oct 2026, 70.3 printemps 2027), et
 ajuste après chaque séance.
 
@@ -94,8 +94,8 @@ périodisation par bloc, spécificité par discipline, calibration sur
 ## Architecture
 
 ```
-strava-connect/
-├── src/strava_connect/
+claude-coach/
+├── src/claude_coach/
 │   ├── cli.py            # Point d'entrée CLI (click)
 │   ├── auth.py           # OAuth2 Strava (tokens, refresh)
 │   ├── client.py         # Client API Strava (rate-limited)

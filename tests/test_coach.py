@@ -3,14 +3,14 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, datetime
 
-from strava_connect.coach import (
+from claude_coach.coach import (
     SPORT_FAMILIES,
     match_all_planned_sessions,
     matching_sport_types,
     session_deltas,
     sport_family,
 )
-from strava_connect.db import (
+from claude_coach.db import (
     get_planned_session,
     insert_full_activity,
     insert_planned_session,
@@ -18,7 +18,7 @@ from strava_connect.db import (
     update_planned_session_status,
     upsert_athlete,
 )
-from strava_connect.models import Activity, Athlete, PlannedSession
+from claude_coach.models import Activity, Athlete, PlannedSession
 
 
 def _seed_activity(

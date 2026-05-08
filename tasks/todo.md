@@ -1,38 +1,39 @@
 # Tâche en cours
 
-## Lot 5d — Subagent coach sportif
-
-Plan complet : `~/.claude/plans/keen-seeking-marshmallow.md`.
+## Rename projet : strava-connect → claude-coach + README
 
 ### Plan
 
-- [x] Créer `.claude/agents/coach.md` (frontmatter `name`/`description`/`model`/`tools` + body avec rôle, surface CLI, contexte athlète, principes d'entraînement, workflows, garde-fous)
-- [x] Créer `tests/test_subagent_coach.py` (smoke structurel : frontmatter parsé, marqueurs clés présents)
-- [x] Mettre à jour `CLAUDE.md` (section "Subagent coach (lot 5d)")
-- [x] Mettre à jour `specs.md` §9 (cocher 5d, pointer vers `.claude/agents/coach.md`)
-- [x] Mettre à jour `backlog.md` (cocher 5.5 et fermer 5.6)
-- [x] `make validate` puis commit + push `feat: Subagent coach sportif (Lot 5d)`
+- [x] `git mv src/strava_connect → src/claude_coach`
+- [x] `sed -i` bulk : `strava_connect` → `claude_coach`, `strava-connect` → `claude-coach` (30+ fichiers : src, tests, docs, agent, scripts)
+- [x] `pyproject.toml` : project name, scripts entry, packages, description, readme
+- [x] `scripts/install-launchd-sync.sh` : `LABEL=com.claude-coach.sync`, `LOG_DIR=~/Library/Logs/claude-coach`, message d'aide `grep claude-coach`
+- [x] Créer `README.md` (description, quickstart, surface CLI, subagent coach, dev)
+- [x] `make install` (rebuild venv) puis `make validate` (194 tests verts)
+- [x] Commit + push
 
-### Hors scope (volontaire)
+### À faire côté utilisateur après pull
 
-- Génération auto d'un plan complet 12+ semaines en un coup — l'agent propose semaine par semaine.
-- Calculs TSS / IF / zones FC dérivées via streams — reportable.
-- Multi-agents spécialisés (analyzer / planner / reviewer) — un seul coach pour MVP.
-- Auto-application de `plan match` post-sync — reste manuel.
-- Synchronisation iCal / Apple Calendar.
+1. **Désinstaller l'ancien launchd** (label `com.strava-connect.sync` toujours en place mais pointe sur l'ex-CLI) :
+   ```bash
+   launchctl unload ~/Library/LaunchAgents/com.strava-connect.sync.plist
+   rm ~/Library/LaunchAgents/com.strava-connect.sync.plist
+   ```
+2. **Réinstaller le launchd** avec le nouveau label :
+   ```bash
+   SYNC_HOUR=10 SYNC_MINUTE=0 bash scripts/install-launchd-sync.sh
+   ```
+3. **(Optionnel)** Renommer le repo GitHub : `gh repo rename claude-coach -R benoitvx/strava-connect`, puis `git remote set-url origin git@github.com:benoitvx/claude-coach.git`.
+4. **(Optionnel)** Renommer le dossier de travail local : `mv ~/Dev/strava-connect ~/Dev/claude-coach`.
+
+### Conservé tel quel (volontaire)
+
+- `STRAVA_DB_PATH`, `STRAVA_TOKEN_FILE`, `STRAVA_CLIENT_ID`, `STRAVA_CLIENT_SECRET` — réfèrent à la **source** Strava, pas au projet.
+- `data/strava.db`, `data/tokens.json`, `data/config.json` — fichiers de données Strava.
+- Toutes les mentions textuelles de "Strava" (l'API / la source) dans la doc.
 
 ### Résultat
 
-Lot 5d livré en un commit. `.claude/agents/coach.md` (~150 lignes) encode :
-polarisé 80/20, périodisation base/build/peak/taper, calibrations par
-discipline (run/ride/swim/swim_run/trail/triathlon), workflows types
-("état des lieux", "plan vers event", "post-séance"), garde-fous
-(propose-then-confirm pour les writes, pas de fabrication de données).
-
-194 tests verts (187 → 194, +7 tests structurels du subagent). Le lot 5
-(agent coach) est complet ; lot 6 (export workouts vers Suunto/Zwift)
-reste à attaquer.
-
-Validation manuelle en dogfood : invoquer le coach via "demande au coach …"
-depuis une session Claude Code dans le repo et vérifier la qualité des
-sorties. Itérer sur `coach.md` si nécessaire (lot 5d.x).
+Rename livré en un commit (`refactor`). 194 tests verts. La doc projet et le
+subagent coach utilisent désormais `claude-coach`. Le repo GitHub garde son
+nom (renommage manuel à la discrétion de l'utilisateur).

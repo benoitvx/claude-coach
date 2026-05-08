@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from strava_connect.models import (
+    from claude_coach.models import (
         Activity,
         ActivityBucket,
         AthleteMetrics,

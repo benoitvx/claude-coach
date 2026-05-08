@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
-from strava_connect.models import Config, Tokens
+from claude_coach.models import Config, Tokens
 
 STRAVA_AUTHORIZE_URL = "https://www.strava.com/oauth/authorize"
 STRAVA_TOKEN_URL = "https://www.strava.com/oauth/token"
@@ -173,7 +173,7 @@ def get_valid_tokens(config: Config, tokens_path: Path = TOKEN_FILE_DEFAULT) -> 
     """
     current = load_tokens(tokens_path)
     if current is None:
-        raise AuthError("Aucun token stocké. Lance d'abord `strava-connect auth`.")
+        raise AuthError("Aucun token stocké. Lance d'abord `claude-coach auth`.")
     if current.expires_at - _now_utc() > REFRESH_THRESHOLD:
         return current
     fresh = refresh_tokens(config, current)

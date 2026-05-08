@@ -7,10 +7,10 @@ from pathlib import Path
 from click.testing import CliRunner
 from pytest import MonkeyPatch
 
-from strava_connect.auth import save_tokens
-from strava_connect.cli import main
-from strava_connect.db import connect, get_metrics_history, migrate
-from strava_connect.models import Tokens
+from claude_coach.auth import save_tokens
+from claude_coach.cli import main
+from claude_coach.db import connect, get_metrics_history, migrate
+from claude_coach.models import Tokens
 
 
 def _setup_env(monkeypatch: MonkeyPatch, tmp_path: Path) -> tuple[Path, Path]:

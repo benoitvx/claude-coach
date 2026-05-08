@@ -12,8 +12,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from strava_connect.db import _row_to_activity, list_planned_sessions, list_training_plans
-from strava_connect.models import Activity, PlannedSession
+from claude_coach.db import _row_to_activity, list_planned_sessions, list_training_plans
+from claude_coach.models import Activity, PlannedSession
 
 SPORT_FAMILIES: dict[str, str] = {
     "Run": "run",

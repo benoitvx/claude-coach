@@ -7,10 +7,10 @@ from pathlib import Path
 from click.testing import CliRunner
 from pytest import MonkeyPatch
 
-from strava_connect.auth import save_tokens
-from strava_connect.cli import main
-from strava_connect.db import connect, insert_athlete_metrics, migrate
-from strava_connect.models import Tokens
+from claude_coach.auth import save_tokens
+from claude_coach.cli import main
+from claude_coach.db import connect, insert_athlete_metrics, migrate
+from claude_coach.models import Tokens
 
 
 def _seed_db_with_athlete(db_path: Path, athlete_id: int = 99) -> None:
@@ -37,7 +37,7 @@ def test_status_no_db_no_tokens(monkeypatch: MonkeyPatch, tmp_path: Path) -> Non
     result = CliRunner().invoke(main, ["status"])
     assert result.exit_code == 0
     assert "fichier absent" in result.output
-    assert "absent — lance `strava-connect auth`" in result.output
+    assert "absent — lance `claude-coach auth`" in result.output
 
 
 def test_status_with_tokens_and_db(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:

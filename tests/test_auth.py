@@ -11,8 +11,8 @@ import pytest
 from pytest import MonkeyPatch
 from pytest_httpserver import HTTPServer
 
-from strava_connect import auth
-from strava_connect.auth import (
+from claude_coach import auth
+from claude_coach.auth import (
     AuthError,
     ConfigError,
     exchange_code,
@@ -22,7 +22,7 @@ from strava_connect.auth import (
     refresh_tokens,
     save_tokens,
 )
-from strava_connect.models import Config, Tokens
+from claude_coach.models import Config, Tokens
 
 # --- save_tokens / load_tokens ---------------------------------------------
 

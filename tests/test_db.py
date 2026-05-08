@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from strava_connect.db import (
+from claude_coach.db import (
     MIGRATIONS,
     aggregate_activities,
     connect,
@@ -38,7 +38,7 @@ from strava_connect.db import (
     update_planned_session_status,
     upsert_athlete,
 )
-from strava_connect.models import Activity, Athlete, Lap, Stream, Zone
+from claude_coach.models import Activity, Athlete, Lap, Stream, Zone
 
 
 def _table_names(conn: sqlite3.Connection) -> set[str]:
@@ -260,8 +260,8 @@ def test_migration_002_preserves_existing_data(db_path: Path) -> None:
     """Pré-pose une row dans athletes (schéma migration 1) puis applique la 2."""
     conn = connect(db_path)
     # Applique seulement la migration 1 manuellement.
-    from strava_connect.db import MIGRATIONS as _MIGRATIONS
-    from strava_connect.db import _set_schema_version
+    from claude_coach.db import MIGRATIONS as _MIGRATIONS
+    from claude_coach.db import _set_schema_version
 
     _MIGRATIONS[0](conn)
     _set_schema_version(conn, 1)

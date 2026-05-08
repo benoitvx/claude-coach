@@ -6,8 +6,8 @@ from pathlib import Path
 from click.testing import CliRunner
 from pytest import MonkeyPatch
 
-from strava_connect.cli import main
-from strava_connect.models import Activity
+from claude_coach.cli import main
+from claude_coach.models import Activity
 
 
 def _setup_db_env(monkeypatch: MonkeyPatch, db_path: Path) -> None:

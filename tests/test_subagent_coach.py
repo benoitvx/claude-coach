@@ -58,8 +58,8 @@ def test_coach_body_mentions_key_concepts() -> None:
     """Si l'un de ces marqueurs disparaît du prompt, on a sauté un brief important."""
     content = COACH_PATH.read_text(encoding="utf-8").lower()
     expected = [
-        "strava-connect activity",
-        "strava-connect plan",
+        "claude-coach activity",
+        "claude-coach plan",
         "--json",
         "polarisé",
         "périodisation",
