@@ -27,5 +27,7 @@ htmlcov/
 # OS
 .DS_Store
 
-# Claude Code
-.claude/
+# Claude Code (config locale ignorée, sauf les subagents projet)
+.claude/*
+!.claude/agents/
+!.claude/agents/**

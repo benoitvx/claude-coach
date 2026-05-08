@@ -69,6 +69,28 @@ Toutes les commandes de lecture (`status`, `goal list/show`, `plan list/show/mat
 acceptent `--json` : sortie stable parseable (snake_case, ISO 8601, `null`
 jamais omis). Conventions détaillées dans `specs.md` §11.
 
+## Subagent coach (lot 5d)
+
+Le repo embarque un subagent Claude Code dans `.claude/agents/coach.md`.
+Il joue le rôle de coach sportif personnel : lit la DB locale via la CLI
+`strava-connect`, analyse la charge, propose des plans périodisés vers les
+objectifs (Swim&Run sept 2026, Trail oct 2026, 70.3 printemps 2027), et
+ajuste après chaque séance.
+
+**Invocation** : depuis une session Claude Code dans le repo, dis simplement
+"demande au coach …" — Claude délègue automatiquement au subagent. Exemples :
+
+- "demande au coach un état des lieux de ma forme actuelle"
+- "demande au coach de me proposer le premier bloc Swim&Run"
+- "demande au coach de débriefer ma séance de ce matin"
+
+**Garde-fou** : le coach a accès à `Bash` (pour la CLI) et `Read` (pour
+les specs) mais **propose** toujours les commandes d'écriture dans un bloc
+` ```bash ` et **demande confirmation** avant exécution. Pas d'auto-application
+silencieuse. Le système prompt encode : polarisé 80/20, charge progressive,
+périodisation par bloc, spécificité par discipline, calibration sur
+`athlete show --json`.
+
 ## Architecture
 
 ```

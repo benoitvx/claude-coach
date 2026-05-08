@@ -313,9 +313,9 @@ autonome). L'agent :
 
 Découpage en sous-lots :
 - **5a** : modèle de données objectifs/plans/séances ✅ (cf. §10)
-- **5b** : matching planifié vs réalisé (date + sport_type)
-- **5c** : commandes CLI orientées agent (queries riches, sortie JSON)
-- **5d** : subagent + system prompt avec règles d'entraînement
+- **5b** : matching planifié vs réalisé (date + sport_type) ✅ (cf. §10)
+- **5c** : commandes CLI orientées agent (queries riches, sortie JSON) ✅ (cf. §11)
+- **5d** : subagent + system prompt avec règles d'entraînement ✅ (`.claude/agents/coach.md`)
 
 ### Export workouts (lot 6)
 
