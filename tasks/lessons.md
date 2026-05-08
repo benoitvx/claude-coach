@@ -48,8 +48,19 @@ et le charge via `launchctl`. Il est idempotent : relancer remplace l'agent
 existant. Logs dans `~/Library/Logs/strava-connect/sync.{out,err}.log`.
 
 Tip : pendant l'import historique initial (le Mac peut être laissé allumé la
-nuit), 02:05 est idéal. Une fois l'historique fini, basculer vers 12:30 —
-plus tolérant à un Mac qui dort la nuit.
+nuit), 02:05 est idéal. Une fois l'historique fini, basculer vers une heure
+de jour plus tolérante à un Mac qui dort la nuit.
+
+**État actuel** (mis à jour 2026-05-08) : import historique terminé
+(357 activités sur 2 ans, status `success`), launchd basculé sur **10:00
+heure locale Paris** :
+
+```bash
+SYNC_HOUR=10 SYNC_MINUTE=0 bash scripts/install-launchd-sync.sh
+```
+
+Note : `StartCalendarInterval` de launchd est en heure locale système, pas UTC.
+Le créneau s'adapte automatiquement été/hiver.
 
 Pour tester sans attendre :
 ```bash

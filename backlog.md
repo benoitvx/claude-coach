@@ -52,7 +52,7 @@
 
 Découpé en sous-lots après planification :
 - **5a** : modèle de données objectifs/plans/séances (5.1, 5.2) ✅
-- **5b** : matching planifié vs réalisé (5.3)
+- **5b** : matching planifié vs réalisé (5.3, 5.6 partiel) ✅
 - **5c** : commandes CLI orientées agent (5.4) — sortie `--json` + groupe `activity` ✅
 - **5d** : subagent coach dans `.claude/agents/` + system prompt (5.5)
 

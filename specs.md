@@ -223,15 +223,23 @@ L'import complet dure plusieurs heures réparties sur 2 jours. Pour empêcher la
 est éditable, les logs sont centralisés (`~/Library/Logs/strava-connect/`)
 et l'agent est rechargeable de façon idempotente.
 
-Schedule par défaut : **02:05 heure locale** — juste après le reset du quota
-journalier Strava (00:00 UTC = 02:00 Paris). Override possible via env vars :
-`SYNC_HOUR=12 SYNC_MINUTE=30 bash scripts/install-launchd-sync.sh`.
+Schedule par défaut du script : **02:05 heure locale** — juste après le reset
+du quota journalier Strava (00:00 UTC = 02:00 Paris). Override possible via
+env vars : `SYNC_HOUR=12 SYNC_MINUTE=30 bash scripts/install-launchd-sync.sh`
+(idempotent, remplace l'agent existant).
 
-Pendant l'import historique initial (Mac laissé allumé la nuit), 02:05 est
-optimal. Une fois l'historique fini, basculer vers une heure de jour (ex 12:30)
-plus tolérante à un Mac qui dort la nuit. Le script utilise `sync --full`
-pour rester compatible avec les deux phases — le coût d'un `--full`
-incrémental est marginal grâce à `has_complete_activity`.
+Deux phases :
+1. **Pendant l'import historique initial** (Mac laissé allumé la nuit) :
+   `02:05` est optimal — quota frais, plage longue avant le réveil.
+2. **Une fois l'historique terminé** (status `success` complet sur la fenêtre
+   `history_days`) : basculer vers une heure de jour, plus tolérante à un Mac
+   qui dort la nuit. **État actuel : 10:00 heure locale** (basculement
+   2026-05-08, après import des 357 activités sur 2 ans).
+
+Le script utilise `sync --full` quelle que soit la phase — le coût d'un `--full`
+en steady state est marginal grâce à `has_complete_activity` (skip immédiat des
+activités déjà en DB). L'usage typique en steady state : ~10-15 requêtes/jour
+sur un quota de 1000.
 
 Voir `tasks/lessons.md` pour les commandes de vérification et désinstallation.
 
