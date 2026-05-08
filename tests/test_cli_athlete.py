@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -142,3 +143,34 @@ def test_athlete_command_without_tokens_errors(monkeypatch: MonkeyPatch, tmp_pat
     result = CliRunner().invoke(main, ["athlete", "show"])
     assert result.exit_code != 0
     assert "auth" in result.output.lower()
+
+
+def test_show_json_returns_object_or_null(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+
+    # Pas encore de métriques.
+    result = runner.invoke(main, ["athlete", "show", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) is None
+
+    runner.invoke(main, ["athlete", "set", "--weight", "75", "--ftp", "260"])
+    result = runner.invoke(main, ["athlete", "show", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["weight_kg"] == 75.0
+    assert payload["ftp_watts"] == 260
+    assert payload["athlete_id"] == 99
+
+
+def test_history_json_returns_array(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(main, ["athlete", "set", "--weight", "70"])
+    runner.invoke(main, ["athlete", "set", "--weight", "71"])
+
+    result = runner.invoke(main, ["athlete", "history", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert isinstance(payload, list)
+    assert [m["weight_kg"] for m in payload] == [71.0, 70.0]

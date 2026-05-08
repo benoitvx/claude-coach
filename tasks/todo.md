@@ -21,12 +21,23 @@ Plan complet : `~/.claude/plans/keen-seeking-marshmallow.md`.
 - [x] `make validate` puis commit `feat: Commandes CLI activity list/show/stats (Lot 5c.2)`
 
 **5c.3 — Flag `--json` sur les lectures existantes**
-- [ ] `goal list/show`, `plan list/show/match`, `plan session list`, `athlete show/history`, `status`
-- [ ] Helper interne `_emit_json` + sérialiseurs
-- [ ] Tests `--json` dans les fichiers existants (au moins un parse JSON par commande convertie)
-- [ ] `specs.md` §11 nouveau : conventions JSON
-- [ ] Cocher `backlog.md` 5.4
-- [ ] `make validate` puis commit `feat: Sortie --json sur commandes de lecture (Lot 5c.3)`
+- [x] `goal list/show`, `plan list/show/match`, `plan session list`, `athlete show/history`, `status`
+- [x] Helper interne `_emit_json` + sérialiseurs
+- [x] Tests `--json` dans les fichiers existants (au moins un parse JSON par commande convertie)
+- [x] `specs.md` §11 nouveau : conventions JSON
+- [x] Cocher `backlog.md` 5.4
+- [x] `make validate` puis commit `feat: Sortie --json sur commandes de lecture (Lot 5c.3)`
+
+### Résultat
+
+Lot 5c livré en 3 commits :
+- 5c.1 (1237ab1) : `db.list_activities` + `db.aggregate_activities` + `ActivityBucket`.
+- 5c.2 (e2ba38d) : groupe CLI `activity list/show/stats` + module `serializers.py`.
+- 5c.3 : flag `--json` sur `status`, `goal list/show`, `plan list/show/match`,
+  `plan session list`, `athlete show/history` + doc `specs.md` §11.
+
+187 tests verts (162 → 176 → 187, +25 tests). Lot 5d (subagent coach) reste à
+attaquer.
 
 ### Hors scope (volontaire)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -389,3 +390,141 @@ def test_plan_show_displays_realized_line_after_match(
     assert "FCmoy 152" in result.output
     # Δdurée -1 min (3600 cible - 3500 réalisé = -100s ≈ -1 min)
     assert "Δdurée" in result.output
+
+
+# --- Lot 5c.3 : sortie --json ----------------------------------------------
+
+
+def test_goal_list_json(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(main, ["goal", "add", "--name", "Trail 50k", "--target-date", "2026-10-15"])
+    runner.invoke(main, ["goal", "add", "--name", "70.3", "--target-date", "2027-04-15"])
+
+    result = runner.invoke(main, ["goal", "list", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert isinstance(payload, list)
+    assert len(payload) == 2
+    # Tri par target_date ASC.
+    assert payload[0]["name"] == "Trail 50k"
+    assert payload[0]["target_date"] == "2026-10-15"
+    assert payload[0]["status"] == "active"
+
+
+def test_goal_show_json(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(main, ["goal", "add", "--name", "Goal", "--description", "détail"])
+
+    result = runner.invoke(main, ["goal", "show", "1", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["id"] == 1
+    assert payload["name"] == "Goal"
+    assert payload["description"] == "détail"
+
+
+def test_plan_list_json(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(
+        main, ["plan", "add", "--name", "P", "--start", "2026-06-01", "--end", "2026-09-15"]
+    )
+
+    result = runner.invoke(main, ["plan", "list", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload) == 1
+    assert payload[0]["start_date"] == "2026-06-01"
+    assert payload[0]["status"] == "active"
+
+
+def test_plan_session_list_json(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(
+        main, ["plan", "add", "--name", "P", "--start", "2026-06-01", "--end", "2026-09-15"]
+    )
+    runner.invoke(
+        main,
+        [
+            "plan",
+            "session",
+            "add",
+            "--plan-id",
+            "1",
+            "--date",
+            "2026-06-15",
+            "--sport",
+            "Run",
+            "--duration",
+            "3600",
+        ],
+    )
+
+    result = runner.invoke(main, ["plan", "session", "list", "--plan-id", "1", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload) == 1
+    assert payload[0]["sport_type"] == "Run"
+    assert payload[0]["target_duration_s"] == 3600
+    assert payload[0]["status"] == "planned"
+
+
+def test_plan_show_json_embeds_sessions_and_realized(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    _seed_plan_with_session_and_activity(db_path)
+    runner = CliRunner()
+    runner.invoke(main, ["plan", "match"])
+
+    result = runner.invoke(main, ["plan", "show", "1", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["id"] == 1
+    assert "sessions" in payload
+    assert len(payload["sessions"]) == 1
+    sess = payload["sessions"][0]
+    # Séance matchée au seed (3500s réalisé vs 3600s cible).
+    assert sess["status"] == "done"
+    assert sess["realized"] is not None
+    assert sess["realized"]["activity_id"] == 5001
+    assert sess["realized"]["duration_delta_s"] == -100  # 3500 - 3600
+
+
+def test_plan_show_json_unmatched_session_realized_null(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(
+        main, ["plan", "add", "--name", "P", "--start", "2026-06-01", "--end", "2026-09-15"]
+    )
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-15", "--sport", "Run"],
+    )
+
+    result = runner.invoke(main, ["plan", "show", "1", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["sessions"][0]["realized"] is None
+
+
+def test_plan_match_json_separates_matched_and_unmatched(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    _seed_plan_with_session_and_activity(db_path)
+
+    result = CliRunner().invoke(main, ["plan", "match", "--dry-run", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["dry_run"] is True
+    assert payload["plan_id"] is None
+    assert len(payload["matched"]) == 1
+    assert payload["matched"][0]["activity_id"] == 5001
+    assert payload["matched"][0]["same_day"] is True
+    assert payload["unmatched"] == []

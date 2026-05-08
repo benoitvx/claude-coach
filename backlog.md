@@ -53,13 +53,13 @@
 Découpé en sous-lots après planification :
 - **5a** : modèle de données objectifs/plans/séances (5.1, 5.2) ✅
 - **5b** : matching planifié vs réalisé (5.3)
-- **5c** : commandes CLI orientées agent (5.4) — interface = CLI lue via Bash
+- **5c** : commandes CLI orientées agent (5.4) — sortie `--json` + groupe `activity` ✅
 - **5d** : subagent coach dans `.claude/agents/` + system prompt (5.5)
 
 - [x] **5.1** Définir le modèle de données pour les objectifs (table `goals` : type, date cible, description, critères de réussite) _(Lot 5a, migration 003)_
 - [x] **5.2** Définir le modèle de données pour les plans d'entraînement (tables `training_plans`, `planned_sessions`) _(Lot 5a, migration 003)_
 - [x] **5.3** Implémenter la comparaison séance planifiée vs réalisée (matching par date/type, calcul des deltas) _(Lot 5b, module `coach.py` + `plan match`)_
-- [ ] **5.4** Créer les outils MCP ou les commandes CLI que l'agent utilisera pour lire/écrire dans la DB _(décision : CLI via Bash)_
+- [x] **5.4** Créer les outils MCP ou les commandes CLI que l'agent utilisera pour lire/écrire dans la DB _(Lot 5c — décision : CLI via Bash, sortie `--json` + groupe `activity` list/show/stats)_
 - [ ] **5.5** Écrire le system prompt de l'agent coach avec les règles d'entraînement (périodisation, charge progressive, récupération, spécificité par discipline) _(décision : subagent Claude Code)_
 - [~] **5.6** Tests : matching planifié/réalisé _(Lot 5b)_, cohérence des plans générés _(reste à faire en 5d)_
 

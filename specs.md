@@ -434,3 +434,54 @@ et affichés dans `plan show` sous la forme :
 ```
 
 Pas de stockage des deltas en DB (recalculés à chaque lecture).
+
+## 11. Surface CLI orientée agent (lot 5c)
+
+Le futur subagent coach (lot 5d) lit la base via la CLI, en exécutant des
+commandes Bash. Pour qu'il puisse parser les sorties sans fragilité, les
+commandes de lecture acceptent `--json`.
+
+### Commandes avec `--json`
+
+- `status` (DB + tokens + dernière sync + métriques athlète)
+- `goal list`, `goal show`
+- `plan list`, `plan show` (séances embarquées + bloc `realized` quand match)
+- `plan match` (matched/unmatched + `dry_run` + `plan_id`)
+- `plan session list`
+- `athlete show` (objet ou `null` si pas de saisie), `athlete history`
+- `activity list`, `activity show`, `activity stats` (lot 5c.2)
+
+Les commandes d'écriture (`add`, `complete`, `done`, `set`, `auth`, `sync`)
+n'ont pas de `--json` — l'agent se base sur le code de retour.
+
+### Conventions JSON
+
+| Aspect | Convention |
+|--------|------------|
+| Listes | array JSON direct (`[...]`), pas d'enveloppe `{"items": ...}`. |
+| Show | objet plat. |
+| Casing | `snake_case` partout (cohérent avec la DB). |
+| Dates | ISO 8601 (`2026-04-22` ou `2026-04-22T10:00:00+00:00`). |
+| Champs absents | `null`, jamais omis — l'agent peut compter sur la présence des clés. |
+| Secrets | jamais sérialisés (`access_token`, `refresh_token` exclus de `status`). |
+| `raw_json` / `map_polyline` / `splits_metric` | exclus côté `activity` (bruit). |
+
+### Schéma `activity stats --json`
+
+```json
+{
+  "group_by": "month",
+  "buckets": [
+    {"key": "2026-04", "count": 12, "distance_m": 145000.0,
+     "moving_time_s": 32400, "elevation_gain_m": 1850.0}
+  ],
+  "total": {"count": 12, "distance_m": 145000.0,
+            "moving_time_s": 32400, "elevation_gain_m": 1850.0}
+}
+```
+
+### Stabilité
+
+Tout changement de format JSON doit être signalé dans le message de commit.
+La sérialisation est centralisée dans `src/strava_connect/serializers.py`
+(une fonction par modèle).

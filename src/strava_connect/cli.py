@@ -51,8 +51,21 @@ from strava_connect.db import (
     update_planned_session_status,
 )
 from strava_connect.models import Activity, PlannedSession
-from strava_connect.serializers import activity_to_dict, bucket_to_dict
+from strava_connect.serializers import (
+    activity_to_dict,
+    athlete_metrics_to_dict,
+    bucket_to_dict,
+    goal_to_dict,
+    planned_session_to_dict,
+    sync_log_to_dict,
+    training_plan_to_dict,
+)
 from strava_connect.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
+
+
+def _emit_json(data: object) -> None:
+    """Écrit un objet en JSON stable (clés triées, indenté, UTF-8 non échappé)."""
+    click.echo(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
 
 
 @click.group()
@@ -78,10 +91,47 @@ def auth() -> None:
 
 
 @main.command()
-def status() -> None:
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def status(json_out: bool) -> None:
     """Affiche l'état de la DB, des tokens et de la dernière sync."""
     db_path = db_path_from_env()
     tokens_path = token_path_from_env()
+    tokens = load_tokens(tokens_path) if tokens_path.exists() else None
+
+    if json_out:
+        payload: dict[str, object] = {
+            "db_path": str(db_path),
+            "db_exists": db_path.exists(),
+            "db_size_kb": None,
+            "activities_count": None,
+            "by_sport": None,
+            "last_sync": None,
+            "tokens": None,
+            "athlete_metrics": None,
+        }
+        if db_path.exists():
+            payload["db_size_kb"] = round(db_path.stat().st_size / 1024, 1)
+            with closing(connect(db_path)) as conn:
+                migrate(conn)
+                payload["activities_count"] = count_activities(conn)
+                payload["by_sport"] = stats_by_sport(conn)
+                last = get_last_sync(conn)
+                payload["last_sync"] = sync_log_to_dict(last) if last else None
+                if tokens is not None:
+                    metrics = get_latest_metrics(conn, tokens.athlete_id)
+                    payload["athlete_metrics"] = (
+                        athlete_metrics_to_dict(metrics) if metrics else None
+                    )
+        if tokens is not None:
+            remaining = tokens.expires_at - datetime.now(tz=UTC)
+            payload["tokens"] = {
+                "tokens_path": str(tokens_path),
+                "athlete_id": tokens.athlete_id,
+                "expires_at": tokens.expires_at.isoformat(),
+                "expires_in_seconds": int(remaining.total_seconds()),
+            }
+        _emit_json(payload)
+        return
 
     click.echo(f"DB           : {db_path}")
     if db_path.exists():
@@ -106,7 +156,6 @@ def status() -> None:
         click.echo("  fichier absent — aucune sync exécutée pour l'instant.")
 
     click.echo(f"\nTokens       : {tokens_path}")
-    tokens = load_tokens(tokens_path) if tokens_path.exists() else None
     if tokens is None:
         click.echo("  absent — lance `strava-connect auth` pour démarrer.")
         return
@@ -277,13 +326,18 @@ def athlete_set(
 
 
 @athlete.command("show")
-def athlete_show() -> None:
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def athlete_show(json_out: bool) -> None:
     """Affiche la dernière entrée de métriques."""
     athlete_id = _require_athlete_id()
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
         migrate(conn)
         metrics = get_latest_metrics(conn, athlete_id)
+
+    if json_out:
+        _emit_json(athlete_metrics_to_dict(metrics) if metrics else None)
+        return
 
     if metrics is None:
         click.echo("Aucune métrique saisie. Utilise `strava-connect athlete set ...`")
@@ -301,13 +355,18 @@ def athlete_show() -> None:
 
 @athlete.command("history")
 @click.option("--limit", type=int, default=20, show_default=True, help="Max lignes affichées")
-def athlete_history(limit: int) -> None:
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def athlete_history(limit: int, json_out: bool) -> None:
     """Affiche l'historique des métriques (chronologique inverse)."""
     athlete_id = _require_athlete_id()
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
         migrate(conn)
         history = get_metrics_history(conn, athlete_id, limit=limit)
+
+    if json_out:
+        _emit_json([athlete_metrics_to_dict(m) for m in history])
+        return
 
     if not history:
         click.echo("Aucune métrique enregistrée.")
@@ -382,12 +441,16 @@ def goal_add(
 
 @goal.command("list")
 @click.option("--status", type=click.Choice(GOAL_STATUSES), default=None)
-def goal_list(status: str | None) -> None:
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def goal_list(status: str | None, json_out: bool) -> None:
     """Liste les objectifs (triés par date cible)."""
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
         migrate(conn)
         goals = list_goals(conn, status=status)
+    if json_out:
+        _emit_json([goal_to_dict(g) for g in goals])
+        return
     if not goals:
         click.echo("Aucun objectif.")
         return
@@ -405,7 +468,8 @@ def goal_list(status: str | None) -> None:
 
 @goal.command("show")
 @click.argument("goal_id", type=int)
-def goal_show(goal_id: int) -> None:
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def goal_show(goal_id: int, json_out: bool) -> None:
     """Affiche le détail d'un objectif."""
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
@@ -413,6 +477,9 @@ def goal_show(goal_id: int) -> None:
         g = get_goal(conn, goal_id)
     if g is None:
         raise click.ClickException(f"Aucun objectif #{goal_id}")
+    if json_out:
+        _emit_json(goal_to_dict(g))
+        return
     click.echo(f"Objectif #{g.id} — {g.name}")
     click.echo(f"  statut       : {g.status}")
     click.echo(f"  discipline   : {g.discipline or '-'}")
@@ -477,12 +544,16 @@ def plan_add(
 @plan.command("list")
 @click.option("--goal-id", "goal_id", type=int, default=None)
 @click.option("--status", type=click.Choice(PLAN_STATUSES), default=None)
-def plan_list(goal_id: int | None, status: str | None) -> None:
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def plan_list(goal_id: int | None, status: str | None, json_out: bool) -> None:
     """Liste les plans d'entraînement."""
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
         migrate(conn)
         plans = list_training_plans(conn, goal_id=goal_id, status=status)
+    if json_out:
+        _emit_json([training_plan_to_dict(p) for p in plans])
+        return
     if not plans:
         click.echo("Aucun plan.")
         return
@@ -501,7 +572,8 @@ def plan_list(goal_id: int | None, status: str | None) -> None:
 
 @plan.command("show")
 @click.argument("plan_id", type=int)
-def plan_show(plan_id: int) -> None:
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def plan_show(plan_id: int, json_out: bool) -> None:
     """Affiche un plan et toutes ses séances planifiées."""
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
@@ -516,6 +588,18 @@ def plan_show(plan_id: int) -> None:
             for s in sessions
             if s.actual_activity_id is not None
         }
+
+    if json_out:
+        plan_payload = training_plan_to_dict(p)
+        sessions_payload: list[dict[str, object]] = []
+        for s in sessions:
+            sd = planned_session_to_dict(s)
+            sd["realized"] = _realized_payload(s, activities.get(s.actual_activity_id or 0))
+            sessions_payload.append(sd)
+        plan_payload["sessions"] = sessions_payload
+        _emit_json(plan_payload)
+        return
+
     click.echo(f"Plan #{p.id} — {p.name}")
     click.echo(f"  période     : {p.start_date.isoformat()} → {p.end_date.isoformat()}")
     click.echo(f"  statut      : {p.status}")
@@ -549,6 +633,21 @@ def plan_show(plan_id: int) -> None:
             act = activities.get(s.actual_activity_id)
             if act is not None:
                 click.echo(_format_realized_line(s, act))
+
+
+def _realized_payload(s: PlannedSession, act: Activity | None) -> dict[str, object] | None:
+    """Bloc 'realized' pour la sortie JSON de plan show — None si pas d'activité matchée."""
+    if act is None:
+        return None
+    deltas = session_deltas(s, act)
+    return {
+        "activity_id": act.id,
+        "moving_time_s": act.moving_time_s,
+        "distance_m": act.distance_m,
+        "average_heartrate": act.average_heartrate,
+        "duration_delta_s": deltas["duration_delta_s"],
+        "distance_delta_m": deltas["distance_delta_m"],
+    }
 
 
 def _format_realized_line(s: PlannedSession, act: Activity) -> str:
@@ -587,7 +686,8 @@ def _format_realized_line(s: PlannedSession, act: Activity) -> str:
     help="Limiter à un plan spécifique. Sans option : tous les plans actifs.",
 )
 @click.option("--dry-run", is_flag=True, help="Affiche sans écrire en DB")
-def plan_match(plan_id: int | None, dry_run: bool) -> None:
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def plan_match(plan_id: int | None, dry_run: bool, json_out: bool) -> None:
     """Apparie chaque séance planifiée à une activité Strava (par date + famille de sport)."""
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
@@ -598,6 +698,17 @@ def plan_match(plan_id: int | None, dry_run: bool) -> None:
 
     matched = [r for r in results if r.activity is not None]
     unmatched = [r for r in results if r.activity is None]
+
+    if json_out:
+        _emit_json(
+            {
+                "plan_id": plan_id,
+                "dry_run": dry_run,
+                "matched": [_match_payload(r, matched=True) for r in matched],
+                "unmatched": [_match_payload(r, matched=False) for r in unmatched],
+            }
+        )
+        return
 
     prefix = "[dry-run] " if dry_run else ""
     if not results:
@@ -610,6 +721,27 @@ def plan_match(plan_id: int | None, dry_run: bool) -> None:
         click.echo(_format_match_line(r, matched=True))
     for r in unmatched:
         click.echo(_format_match_line(r, matched=False))
+
+
+def _match_payload(r: MatchResult, *, matched: bool) -> dict[str, object]:
+    base: dict[str, object] = {
+        "session_id": r.session.id,
+        "planned_date": r.session.planned_date.isoformat(),
+        "sport_type": r.session.sport_type,
+    }
+    if not matched or r.activity is None:
+        base["activity_id"] = None
+        base["same_day"] = None
+        base["moving_time_s"] = None
+        return base
+    act = r.activity
+    same_day = act.start_date_local is not None and act.start_date_local.startswith(
+        r.session.planned_date.isoformat()
+    )
+    base["activity_id"] = act.id
+    base["same_day"] = same_day
+    base["moving_time_s"] = act.moving_time_s
+    return base
 
 
 def _format_match_line(r: MatchResult, *, matched: bool) -> str:
@@ -678,7 +810,8 @@ def plan_session_add(
 @plan_session.command("list")
 @click.option("--plan-id", "plan_id", required=True, type=int)
 @click.option("--status", type=click.Choice(SESSION_STATUSES), default=None)
-def plan_session_list(plan_id: int, status: str | None) -> None:
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def plan_session_list(plan_id: int, status: str | None, json_out: bool) -> None:
     """Liste les séances planifiées d'un plan."""
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
@@ -686,6 +819,9 @@ def plan_session_list(plan_id: int, status: str | None) -> None:
         if get_training_plan(conn, plan_id) is None:
             raise click.ClickException(f"Aucun plan #{plan_id}")
         sessions = list_planned_sessions(conn, training_plan_id=plan_id, status=status)
+    if json_out:
+        _emit_json([planned_session_to_dict(s) for s in sessions])
+        return
     if not sessions:
         click.echo("Aucune séance.")
         return
@@ -720,11 +856,6 @@ def _resolve_sport_types(sport: str | None, family: str | None) -> list[str] | N
     if family is not None:
         return sport_types_in_family(family)
     return None
-
-
-def _emit_json(data: object) -> None:
-    """Écrit un objet en JSON stable (clés triées, indenté, ASCII échappé non forcé)."""
-    click.echo(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
 
 
 @main.group()
