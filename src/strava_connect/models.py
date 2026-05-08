@@ -86,6 +86,17 @@ class Activity:
 
 
 @dataclass(frozen=True)
+class ActivityBucket:
+    """Agrégat d'activités sur une clé de regroupement (sport, semaine ou mois)."""
+
+    key: str  # "Run" / "2026-W18" / "2026-04"
+    count: int
+    distance_m: float
+    moving_time_s: int
+    elevation_gain_m: float
+
+
+@dataclass(frozen=True)
 class Stream:
     activity_id: int
     stream_type: str

@@ -1,17 +1,39 @@
 # Tâche en cours
 
-Aucune tâche en cours.
+## Lot 5c — surface CLI orientée agent coach
 
-<!--
-Format attendu pour une tâche :
-
-## <titre de la tâche>
+Plan complet : `~/.claude/plans/keen-seeking-marshmallow.md`.
 
 ### Plan
-- [ ] étape 1
-- [ ] étape 2
-- [ ] étape 3
+
+**5c.1 — Helpers DB de lecture/agrégation**
+- [x] Ajouter dataclass `ActivityBucket` dans `models.py`
+- [x] Ajouter `list_activities(conn, *, since, until, sport_types, limit)` dans `db.py`
+- [x] Ajouter `aggregate_activities(conn, *, since, until, sport_types, group_by)` dans `db.py`
+- [x] Étendre `tests/conftest.py` avec une fixture `seed_activities`
+- [x] Tests dans `tests/test_db.py` (filtres date/sport, agrégation sport/week/month, base vide)
+- [x] `make validate` puis commit `feat: Helpers DB list/aggregate activités (Lot 5c.1)`
+
+**5c.2 — Commandes `strava-connect activity *`**
+- [ ] Nouveau groupe `activity` dans `cli.py` : `list`, `show`, `stats`
+- [ ] Flags texte + `--json` (sortie JSON stable, ISO dates, snake_case)
+- [ ] Tests dans `tests/test_cli_activity.py` (incluant `json.loads(result.output)`)
+- [ ] `make validate` puis commit `feat: Commandes CLI activity list/show/stats (Lot 5c.2)`
+
+**5c.3 — Flag `--json` sur les lectures existantes**
+- [ ] `goal list/show`, `plan list/show/match`, `plan session list`, `athlete show/history`, `status`
+- [ ] Helper interne `_emit_json` + sérialiseurs
+- [ ] Tests `--json` dans les fichiers existants (au moins un parse JSON par commande convertie)
+- [ ] `specs.md` §11 nouveau : conventions JSON
+- [ ] Cocher `backlog.md` 5.4
+- [ ] `make validate` puis commit `feat: Sortie --json sur commandes de lecture (Lot 5c.3)`
+
+### Hors scope (volontaire)
+
+- Streams/laps détaillés (à introduire en 5d quand l'agent les demandera).
+- TSS, IF, zones de FC dérivées.
+- Pagination cursor/offset.
+- Format CSV/Markdown.
 
 ### Résultat
 (à remplir une fois la tâche terminée)
--->

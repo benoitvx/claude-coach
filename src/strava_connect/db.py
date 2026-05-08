@@ -5,9 +5,11 @@ import sqlite3
 from collections.abc import Callable
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Literal
 
 from strava_connect.models import (
     Activity,
+    ActivityBucket,
     Athlete,
     AthleteMetrics,
     Goal,
@@ -460,6 +462,121 @@ def has_complete_activity(conn: sqlite3.Connection, activity_id: int) -> bool:
         (activity_id,),
     ).fetchone()
     return bool(row["has_act"])
+
+
+def list_activities(
+    conn: sqlite3.Connection,
+    *,
+    since: date | None = None,
+    until: date | None = None,
+    sport_types: list[str] | None = None,
+    limit: int | None = None,
+) -> list[Activity]:
+    """Liste les activités triées par start_date_local DESC.
+
+    Filtres optionnels :
+    - `since` / `until` : bornes inclusives sur DATE(start_date_local).
+    - `sport_types` : sport_types Strava à inclure (ex: ["Run", "TrailRun"]).
+    - `limit` : nombre max de lignes.
+    """
+    clauses: list[str] = []
+    params: list[object] = []
+    if since is not None:
+        clauses.append("DATE(start_date_local) >= ?")
+        params.append(since.isoformat())
+    if until is not None:
+        clauses.append("DATE(start_date_local) <= ?")
+        params.append(until.isoformat())
+    if sport_types:
+        placeholders = ",".join("?" * len(sport_types))
+        clauses.append(f"sport_type IN ({placeholders})")
+        params.extend(sport_types)
+
+    sql = f"SELECT {_ACTIVITY_COLUMNS} FROM activities"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY start_date_local DESC, id DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+
+    rows = conn.execute(sql, tuple(params)).fetchall()
+    return [_row_to_activity(row) for row in rows]
+
+
+def aggregate_activities(
+    conn: sqlite3.Connection,
+    *,
+    group_by: Literal["sport", "week", "month"],
+    since: date | None = None,
+    until: date | None = None,
+    sport_types: list[str] | None = None,
+) -> list[ActivityBucket]:
+    """Agrège les activités sur la clé `group_by`.
+
+    - `sport` : groupe par `sport_type` (NULL → 'unknown'), tri count décroissant.
+    - `week` : `strftime('%Y-W%W', start_date_local)` (ex: "2026-W18"). Lundi
+      premier jour de semaine selon SQLite — pas exactement ISO 8601 mais
+      stable et suffisant pour des tendances coach.
+    - `month` : `strftime('%Y-%m', start_date_local)` (ex: "2026-04").
+
+    Pour `week`/`month`, les activités sans `start_date_local` sont exclues.
+    Les NULL sur `distance_m`, `moving_time_s`, `total_elevation_gain_m` sont
+    traités comme 0 dans les sommes.
+    """
+    if group_by == "sport":
+        key_expr = "COALESCE(sport_type, 'unknown')"
+        require_local_date = False
+        order_by = "count DESC, key ASC"
+    elif group_by == "week":
+        key_expr = "strftime('%Y-W%W', start_date_local)"
+        require_local_date = True
+        order_by = "key ASC"
+    elif group_by == "month":
+        key_expr = "strftime('%Y-%m', start_date_local)"
+        require_local_date = True
+        order_by = "key ASC"
+    else:
+        raise ValueError(f"group_by invalide: {group_by!r}")
+
+    clauses: list[str] = []
+    params: list[object] = []
+    if require_local_date:
+        clauses.append("start_date_local IS NOT NULL")
+    if since is not None:
+        clauses.append("DATE(start_date_local) >= ?")
+        params.append(since.isoformat())
+    if until is not None:
+        clauses.append("DATE(start_date_local) <= ?")
+        params.append(until.isoformat())
+    if sport_types:
+        placeholders = ",".join("?" * len(sport_types))
+        clauses.append(f"sport_type IN ({placeholders})")
+        params.extend(sport_types)
+
+    sql = (
+        f"SELECT {key_expr} AS key, "
+        "COUNT(*) AS count, "
+        "COALESCE(SUM(distance_m), 0) AS distance_m, "
+        "COALESCE(SUM(moving_time_s), 0) AS moving_time_s, "
+        "COALESCE(SUM(total_elevation_gain_m), 0) AS elevation_gain_m "
+        "FROM activities"
+    )
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += f" GROUP BY key ORDER BY {order_by}"
+
+    rows = conn.execute(sql, tuple(params)).fetchall()
+    return [
+        ActivityBucket(
+            key=row["key"],
+            count=int(row["count"]),
+            distance_m=float(row["distance_m"]),
+            moving_time_s=int(row["moving_time_s"]),
+            elevation_gain_m=float(row["elevation_gain_m"]),
+        )
+        for row in rows
+    ]
 
 
 def start_sync(conn: sqlite3.Connection, sync_type: str) -> int:

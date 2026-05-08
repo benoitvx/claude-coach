@@ -8,6 +8,7 @@ import pytest
 
 from strava_connect.db import (
     MIGRATIONS,
+    aggregate_activities,
     connect,
     count_activities,
     finish_sync,
@@ -25,6 +26,7 @@ from strava_connect.db import (
     insert_goal,
     insert_planned_session,
     insert_training_plan,
+    list_activities,
     list_goals,
     list_planned_sessions,
     list_training_plans,
@@ -562,3 +564,105 @@ def test_insert_goal_uses_utc_timestamps(db_conn: sqlite3.Connection) -> None:
     after = datetime.now(tz=UTC)
     assert before <= g.created_at <= after
     assert g.created_at == g.updated_at  # à la création
+
+
+# --- Lot 5c.1 : list_activities / aggregate_activities ---------------------
+
+
+def test_list_activities_orders_by_local_date_desc(
+    seed_activities: list[Activity], db_conn: sqlite3.Connection
+) -> None:
+    rows = list_activities(db_conn)
+    # Plus récent en premier.
+    assert [a.id for a in rows] == [1008, 1007, 1006, 1005, 1004, 1003, 1002, 1001]
+
+
+def test_list_activities_filters_by_date_range(
+    seed_activities: list[Activity], db_conn: sqlite3.Connection
+) -> None:
+    rows = list_activities(db_conn, since=date(2026, 2, 1), until=date(2026, 2, 28))
+    assert {a.id for a in rows} == {1004, 1005}
+
+
+def test_list_activities_filters_by_sport_types(
+    seed_activities: list[Activity], db_conn: sqlite3.Connection
+) -> None:
+    runs = list_activities(db_conn, sport_types=["Run"])
+    assert {a.id for a in runs} == {1001, 1005, 1008}
+
+    run_family = list_activities(db_conn, sport_types=["Run", "TrailRun"])
+    assert {a.id for a in run_family} == {1001, 1002, 1005, 1007, 1008}
+
+
+def test_list_activities_limit(
+    seed_activities: list[Activity], db_conn: sqlite3.Connection
+) -> None:
+    rows = list_activities(db_conn, limit=3)
+    assert [a.id for a in rows] == [1008, 1007, 1006]
+
+
+def test_list_activities_empty(db_conn: sqlite3.Connection) -> None:
+    assert list_activities(db_conn) == []
+
+
+def test_aggregate_activities_by_sport(
+    seed_activities: list[Activity], db_conn: sqlite3.Connection
+) -> None:
+    buckets = aggregate_activities(db_conn, group_by="sport")
+    # Tri par count DESC : Run(3) > TrailRun(2) > {Ride, Swim, VirtualRide}(1) tri alpha
+    assert [b.key for b in buckets] == ["Run", "TrailRun", "Ride", "Swim", "VirtualRide"]
+    run_bucket = next(b for b in buckets if b.key == "Run")
+    assert run_bucket.count == 3
+    assert run_bucket.distance_m == 30000.0  # 10000 + 12000 + 8000
+    assert run_bucket.moving_time_s == 10800  # 3600 + 4200 + 3000
+    assert run_bucket.elevation_gain_m == 300.0  # 100 + 120 + 80
+
+
+def test_aggregate_activities_by_month(
+    seed_activities: list[Activity], db_conn: sqlite3.Connection
+) -> None:
+    buckets = aggregate_activities(db_conn, group_by="month")
+    assert [b.key for b in buckets] == ["2026-01", "2026-02", "2026-03", "2026-04"]
+    counts = {b.key: b.count for b in buckets}
+    assert counts == {"2026-01": 3, "2026-02": 2, "2026-03": 2, "2026-04": 1}
+
+
+def test_aggregate_activities_by_week(
+    seed_activities: list[Activity], db_conn: sqlite3.Connection
+) -> None:
+    buckets = aggregate_activities(db_conn, group_by="week")
+    # Format SQLite '%Y-W%W' : 2 chiffres, semaines Monday-based.
+    keys = [b.key for b in buckets]
+    assert all(k.startswith("2026-W") for k in keys)
+    assert keys == sorted(keys)  # ordre chronologique ascendant
+    # 8 activités sur 8 semaines distinctes.
+    assert len(buckets) == 8
+    assert all(b.count == 1 for b in buckets)
+
+
+def test_aggregate_activities_with_filters(
+    seed_activities: list[Activity], db_conn: sqlite3.Connection
+) -> None:
+    buckets = aggregate_activities(
+        db_conn,
+        group_by="sport",
+        since=date(2026, 2, 1),
+        until=date(2026, 3, 31),
+        sport_types=["Run", "TrailRun", "VirtualRide"],
+    )
+    keys = {b.key: b for b in buckets}
+    assert set(keys) == {"Run", "TrailRun", "VirtualRide"}
+    assert keys["Run"].count == 1  # 1005 (Feb 16) ; 1001 et 1008 hors fenêtre
+    assert keys["TrailRun"].count == 1  # 1007 (Mar 16) ; 1002 hors fenêtre
+    assert keys["VirtualRide"].count == 1  # 1006
+
+
+def test_aggregate_activities_empty(db_conn: sqlite3.Connection) -> None:
+    assert aggregate_activities(db_conn, group_by="sport") == []
+    assert aggregate_activities(db_conn, group_by="week") == []
+    assert aggregate_activities(db_conn, group_by="month") == []
+
+
+def test_aggregate_activities_invalid_group_by(db_conn: sqlite3.Connection) -> None:
+    with pytest.raises(ValueError):
+        aggregate_activities(db_conn, group_by="day")  # type: ignore[arg-type]
