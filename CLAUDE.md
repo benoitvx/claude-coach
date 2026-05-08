@@ -57,7 +57,17 @@ strava-connect plan match [--plan-id <ID>] [--dry-run]   # apparie séances ↔ 
 strava-connect plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swim|...> [opts]
 strava-connect plan session list --plan-id <ID> [--status ...]
 strava-connect plan session done <ID>
+
+# Lecture activités pour l'agent coach (lot 5c)
+strava-connect activity list  [--from <DATE>] [--to <DATE>] [--sport ...] [--family run|ride|swim|...] [--limit N]
+strava-connect activity show  <ID>
+strava-connect activity stats [--from <DATE>] [--to <DATE>] [--sport ...] [--family ...] [--by sport|week|month]
 ```
+
+Toutes les commandes de lecture (`status`, `goal list/show`, `plan list/show/match`,
+`plan session list`, `athlete show/history`, `activity list/show/stats`)
+acceptent `--json` : sortie stable parseable (snake_case, ISO 8601, `null`
+jamais omis). Conventions détaillées dans `specs.md` §11.
 
 ## Architecture
 
@@ -70,7 +80,8 @@ strava-connect/
 │   ├── models.py         # Modèles de données (dataclasses)
 │   ├── db.py             # Couche SQLite (migrations, CRUD)
 │   ├── sync.py           # Logique de synchronisation
-│   └── coach.py          # Matching planifié vs réalisé (lot 5b)
+│   ├── coach.py          # Matching planifié vs réalisé (lot 5b)
+│   └── serializers.py    # Sérialisation modèle → dict pour `--json` (lot 5c)
 ├── tests/
 ├── data/                 # DB SQLite + tokens (gitignored)
 ├── tasks/
