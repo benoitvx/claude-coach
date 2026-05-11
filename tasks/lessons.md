@@ -26,6 +26,51 @@ il forcera des re-fetchs perpétuels pour les activités qui n'en ont pas. Préf
 critère minimal (existence) quand l'insertion est transactionnelle.
 
 
+## 2026-05-11 — Subagent coach : sous-exploitation des données par défaut
+
+**Contexte** : 1ʳᵉ séance d'intervalles (6×30") matchée lundi 11 mai. Le coach
+a fait un débrief en regardant seulement `activity show --json`, et a halluciné
+"pas de laps en DB, la montre n'a pas segmenté" alors que `activity_laps`
+contenait 15 lignes parfaitement alignées sur les blocs vifs.
+
+**Erreur** : `activity show --json` exclut volontairement les laps et streams
+(décision 5c.2 : compactness). Le subagent n'avait aucune commande pour les
+récupérer → il a inféré "absent" depuis l'absence de champ.
+
+**Correction** : nouveau lot 5c.4 (`activity laps <ID>`) puis 5c.5 (`activity
+streams <ID>`), avec mise à jour de `coach.md` pour les déclencher dans le
+workflow Post-séance selon `session_type`.
+
+**Pattern à retenir** : pour un subagent qui interroge la DB via CLI, **chaque
+décision "exclus volontairement" côté sérialiseur est un trou cognitif** tant
+qu'aucune commande dédiée n'expose la donnée séparément. Avant de cacher
+quelque chose pour rester compact, prévoir la commande "détail" en regard, ou
+au moins documenter le trou dans le prompt du subagent.
+
+
+## 2026-05-11 — Mise à jour de prompt sans CLI correspondante
+
+**Contexte** : Lot 5d.2 ajoute un "semantic check" dans `coach.md` qui dit à
+l'agent : *"si mismatch, propose à l'athlète de passer la session en `skipped`
+puis créer une session ad-hoc"*. Mais la CLI ne couvrait pas l'écriture du
+statut `skipped` — seul `plan session done` existait. Le workflow était
+silencieusement cassé.
+
+**Erreur** : le prompt instruisait une action que la surface outil ne
+permettait pas. Découvert par observation utilisateur (« il manque `goal
+abandon` »).
+
+**Correction** : Lot 5c.6 — ajout des transitions manquantes (`goal abandon`,
+`plan complete`, `plan pause`, `plan session skip`) en parallèle de leurs
+homologues `complete` / `done` existants.
+
+**Pattern à retenir** : **quand on étend un prompt agent pour instruire une
+action downstream (Bash, CLI, MCP), vérifier que la surface outil supporte
+l'action**. Sinon le prompt est aspirational, pas opérationnel. Règle pratique :
+toute mention d'un nouveau verbe (`skip`, `abandon`, `reopen`) dans `coach.md`
+exige soit la commande, soit une note explicite "indisponible pour l'instant".
+
+
 ## Automatisation : sync planifiée (macOS)
 
 Préférer **launchd** plutôt que cron : un Mac qui dort à l'heure prévue rate

@@ -56,6 +56,13 @@ Découpé en sous-lots après planification :
 - **5c** : commandes CLI orientées agent (5.4) — sortie `--json` + groupe `activity` ✅
 - **5d** : subagent coach dans `.claude/agents/coach.md` + system prompt (5.5) ✅
 
+Itérations post-livraison (mai 2026, suite au dogfood) :
+- **5c.4** : `activity laps` + intégration coach (séances intervals/threshold)
+- **5c.5** : `activity streams` (long Z2, time-in-zone via Python ad-hoc)
+- **5c.6** : status transitions manquantes (`goal abandon`, `plan complete/pause`, `plan session skip`)
+- **5d.1** : workflow laps dans `coach.md` (Post-séance)
+- **5d.2** : ACWR formel + data quality check + semantic check planifié↔réalisé + pattern stream long Z2
+
 - [x] **5.1** Définir le modèle de données pour les objectifs (table `goals` : type, date cible, description, critères de réussite) _(Lot 5a, migration 003)_
 - [x] **5.2** Définir le modèle de données pour les plans d'entraînement (tables `training_plans`, `planned_sessions`) _(Lot 5a, migration 003)_
 - [x] **5.3** Implémenter la comparaison séance planifiée vs réalisée (matching par date/type, calcul des deltas) _(Lot 5b, module `coach.py` + `plan match`)_
