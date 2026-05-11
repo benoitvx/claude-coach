@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         ActivityBucket,
         AthleteMetrics,
         Goal,
+        Lap,
         PlannedSession,
         SyncLog,
         TrainingPlan,
@@ -63,6 +64,27 @@ def bucket_to_dict(b: ActivityBucket) -> dict[str, object]:
         "distance_m": b.distance_m,
         "moving_time_s": b.moving_time_s,
         "elevation_gain_m": b.elevation_gain_m,
+    }
+
+
+def lap_to_dict(lap: Lap) -> dict[str, object]:
+    return {
+        "id": lap.id,
+        "activity_id": lap.activity_id,
+        "name": lap.name,
+        "lap_index": lap.lap_index,
+        "distance_m": lap.distance_m,
+        "moving_time_s": lap.moving_time_s,
+        "elapsed_time_s": lap.elapsed_time_s,
+        "start_index": lap.start_index,
+        "end_index": lap.end_index,
+        "average_speed_ms": lap.average_speed_ms,
+        "max_speed_ms": lap.max_speed_ms,
+        "average_heartrate": lap.average_heartrate,
+        "max_heartrate": lap.max_heartrate,
+        "average_watts": lap.average_watts,
+        "average_cadence": lap.average_cadence,
+        "total_elevation_gain_m": lap.total_elevation_gain_m,
     }
 
 

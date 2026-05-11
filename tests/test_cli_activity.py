@@ -7,7 +7,8 @@ from click.testing import CliRunner
 from pytest import MonkeyPatch
 
 from claude_coach.cli import main
-from claude_coach.models import Activity
+from claude_coach.db import connect, insert_full_activity, migrate, upsert_athlete
+from claude_coach.models import Activity, Athlete, Lap
 
 
 def _setup_db_env(monkeypatch: MonkeyPatch, db_path: Path) -> None:
@@ -192,4 +193,125 @@ def test_activity_stats_empty_window(
         ["activity", "stats", "--from", "2027-01-01", "--to", "2027-12-31"],
     )
     assert result.exit_code == 0, result.output
+    assert "Aucune activité" in result.output
+
+
+# --- Lot 5c.4 : activity laps ---------------------------------------------
+
+
+def _seed_activity_with_laps(db_path: Path) -> None:
+    """Insère une activité Run + 4 laps (1 éch + 2 blocs vifs + 1 retour calme)."""
+    conn = connect(db_path)
+    try:
+        migrate(conn)
+        upsert_athlete(conn, Athlete(id=42))
+        activity = Activity(id=3001, athlete_id=42, sport_type="Run", raw_json="{}")
+        laps_seed = [
+            Lap(
+                id=400,
+                activity_id=3001,
+                lap_index=1,
+                distance_m=2000.0,
+                moving_time_s=900,
+                average_heartrate=141.0,
+                average_speed_ms=2.22,
+            ),
+            Lap(
+                id=401,
+                activity_id=3001,
+                lap_index=2,
+                distance_m=100.0,
+                moving_time_s=30,
+                average_heartrate=160.0,
+                max_heartrate=170.0,
+                average_speed_ms=3.33,
+            ),
+            Lap(
+                id=402,
+                activity_id=3001,
+                lap_index=3,
+                distance_m=110.0,
+                moving_time_s=30,
+                average_heartrate=165.0,
+                max_heartrate=175.0,
+                average_speed_ms=3.66,
+            ),
+            Lap(
+                id=403,
+                activity_id=3001,
+                lap_index=4,
+                distance_m=1400.0,
+                moving_time_s=600,
+                average_heartrate=148.0,
+                average_speed_ms=2.33,
+            ),
+        ]
+        insert_full_activity(conn, activity, [], laps_seed, [])
+    finally:
+        conn.close()
+
+
+def test_activity_laps_human_format(monkeypatch: MonkeyPatch, db_path: Path) -> None:
+    _setup_db_env(monkeypatch, db_path)
+    _seed_activity_with_laps(db_path)
+
+    result = CliRunner().invoke(main, ["activity", "laps", "3001"])
+    assert result.exit_code == 0, result.output
+    # Entête + 4 lignes lap.
+    assert "FCmoy" in result.output
+    # Lap 1 = échauffement long (900s, FC 141).
+    assert "900s" in result.output
+    assert "141" in result.output
+
+
+def test_activity_laps_json(monkeypatch: MonkeyPatch, db_path: Path) -> None:
+    _setup_db_env(monkeypatch, db_path)
+    _seed_activity_with_laps(db_path)
+
+    result = CliRunner().invoke(main, ["activity", "laps", "3001", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert isinstance(payload, list)
+    assert [lap["lap_index"] for lap in payload] == [1, 2, 3, 4]
+    # Convention : champs absents en `null`, jamais omis.
+    assert "max_heartrate" in payload[0]
+    assert payload[0]["max_heartrate"] is None  # éch n'a pas de max_heartrate
+    assert payload[1]["max_heartrate"] == 170.0
+
+
+def test_activity_laps_empty_when_no_laps(monkeypatch: MonkeyPatch, db_path: Path) -> None:
+    _setup_db_env(monkeypatch, db_path)
+    conn = connect(db_path)
+    try:
+        migrate(conn)
+        upsert_athlete(conn, Athlete(id=42))
+        insert_full_activity(
+            conn,
+            Activity(id=3002, athlete_id=42, sport_type="Yoga", raw_json="{}"),
+            [],
+            [],
+            [],
+        )
+    finally:
+        conn.close()
+
+    result = CliRunner().invoke(main, ["activity", "laps", "3002"])
+    assert result.exit_code == 0, result.output
+    assert "Aucun lap" in result.output
+
+    result_json = CliRunner().invoke(main, ["activity", "laps", "3002", "--json"])
+    assert result_json.exit_code == 0
+    assert json.loads(result_json.output) == []
+
+
+def test_activity_laps_unknown_activity_errors(monkeypatch: MonkeyPatch, db_path: Path) -> None:
+    _setup_db_env(monkeypatch, db_path)
+    conn = connect(db_path)
+    try:
+        migrate(conn)
+    finally:
+        conn.close()
+
+    result = CliRunner().invoke(main, ["activity", "laps", "999999"])
+    assert result.exit_code != 0
     assert "Aucune activité" in result.output

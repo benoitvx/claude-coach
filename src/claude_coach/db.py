@@ -579,6 +579,44 @@ def aggregate_activities(
     ]
 
 
+def _row_to_lap(row: sqlite3.Row) -> Lap:
+    return Lap(
+        id=row["id"],
+        activity_id=row["activity_id"],
+        name=row["name"],
+        lap_index=row["lap_index"],
+        distance_m=row["distance_m"],
+        moving_time_s=row["moving_time_s"],
+        elapsed_time_s=row["elapsed_time_s"],
+        start_index=row["start_index"],
+        end_index=row["end_index"],
+        average_speed_ms=row["average_speed_ms"],
+        max_speed_ms=row["max_speed_ms"],
+        average_heartrate=row["average_heartrate"],
+        max_heartrate=row["max_heartrate"],
+        average_watts=row["average_watts"],
+        average_cadence=row["average_cadence"],
+        total_elevation_gain_m=row["total_elevation_gain_m"],
+    )
+
+
+def list_laps(conn: sqlite3.Connection, activity_id: int) -> list[Lap]:
+    """Renvoie les laps d'une activité, triés par `lap_index` ASC.
+
+    Utile pour les débriefs de séances d'intervalles : FC pic / allure réelle
+    par bloc, dérive entre répétitions.
+    """
+    rows = conn.execute(
+        "SELECT id, activity_id, name, lap_index, distance_m, moving_time_s, "
+        "elapsed_time_s, start_index, end_index, average_speed_ms, max_speed_ms, "
+        "average_heartrate, max_heartrate, average_watts, average_cadence, "
+        "total_elevation_gain_m FROM activity_laps WHERE activity_id = ? "
+        "ORDER BY lap_index ASC, id ASC",
+        (activity_id,),
+    ).fetchall()
+    return [_row_to_lap(row) for row in rows]
+
+
 def start_sync(conn: sqlite3.Connection, sync_type: str) -> int:
     """Insère une ligne sync_log avec started_at = now et status='running'. Retourne l'id."""
     started_at = datetime.now(tz=UTC).isoformat()

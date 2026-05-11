@@ -60,6 +60,7 @@ def test_coach_body_mentions_key_concepts() -> None:
     expected = [
         "claude-coach activity",
         "claude-coach plan",
+        "activity laps",
         "--json",
         "polarisé",
         "périodisation",

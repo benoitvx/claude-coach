@@ -458,6 +458,7 @@ commandes de lecture acceptent `--json`.
 - `plan session list`
 - `athlete show` (objet ou `null` si pas de saisie), `athlete history`
 - `activity list`, `activity show`, `activity stats` (lot 5c.2)
+- `activity laps <ID>` (lot 5c.4 — laps segmentés par la montre, hors `show` pour rester compact)
 
 Les commandes d'écriture (`add`, `complete`, `done`, `set`, `auth`, `sync`)
 n'ont pas de `--json` — l'agent se base sur le code de retour.
@@ -473,6 +474,7 @@ n'ont pas de `--json` — l'agent se base sur le code de retour.
 | Champs absents | `null`, jamais omis — l'agent peut compter sur la présence des clés. |
 | Secrets | jamais sérialisés (`access_token`, `refresh_token` exclus de `status`). |
 | `raw_json` / `map_polyline` / `splits_metric` | exclus côté `activity` (bruit). |
+| Laps | exposés via commande dédiée `activity laps <ID>`, pas dans `show` (évite de charger les laps sur listes massives). |
 
 ### Schéma `activity stats --json`
 

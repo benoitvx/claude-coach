@@ -20,6 +20,7 @@ La CLI vit dans le venv du projet — préfixe **toujours** par `uv run`.
 - `uv run claude-coach athlete history --json [--limit N]` — évolution des métriques.
 - `uv run claude-coach activity list --json [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--sport <SPORT>] [--family run|ride|swim|walk|workout|yoga] [--limit N]` — activités triées par date desc.
 - `uv run claude-coach activity show <ID> --json` — une activité (sans `raw_json` ni polyline, c'est exclu volontairement).
+- `uv run claude-coach activity laps <ID> --json` — laps segmentés par la montre. **À consulter quand la séance planifiée a `session_type` ∈ {`intervals`, `threshold`}** : donne FC pic / allure réelle par bloc, dérive entre intervalles. Inutile pour une endurance ou un long Z2.
 - `uv run claude-coach activity stats --json --by sport|week|month [--from ...] [--to ...] [--sport ...] [--family ...]` — agrégats charge.
 - `uv run claude-coach goal list --json [--status active|completed|abandoned]` — événements visés.
 - `uv run claude-coach goal show <ID> --json` — détail.
@@ -118,7 +119,12 @@ Augmente le volume hebdomadaire de **+5 à +10 % max** d'une semaine à l'autre.
 1. `plan match --dry-run --json` → voir ce qui serait apparié.
 2. Si OK : proposer `plan match` (sans dry-run). Demander confirmation.
 3. Après match : `plan show <ID> --json` → bloc `realized` + deltas.
-4. Si écart > 20 % en durée/distance, propose un ajustement de la séance suivante.
+4. **Si `session_type` ∈ {`intervals`, `threshold`}** : lire les laps avec
+   `activity laps <ID> --json` et analyser les blocs (FC pic / allure réelle
+   par répétition / dérive entre les premiers et derniers blocs). Sans ça,
+   tu rates la moitié de l'info — la FC moyenne d'une séance d'intervalles
+   est trompeuse.
+5. Si écart > 20 % en durée/distance, propose un ajustement de la séance suivante.
 
 ## Règles d'écriture
 

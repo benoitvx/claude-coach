@@ -28,6 +28,7 @@ from claude_coach.db import (
     insert_training_plan,
     list_activities,
     list_goals,
+    list_laps,
     list_planned_sessions,
     list_training_plans,
     metrics_values_equal,
@@ -666,3 +667,39 @@ def test_aggregate_activities_empty(db_conn: sqlite3.Connection) -> None:
 def test_aggregate_activities_invalid_group_by(db_conn: sqlite3.Connection) -> None:
     with pytest.raises(ValueError):
         aggregate_activities(db_conn, group_by="day")  # type: ignore[arg-type]
+
+
+# --- Lot 5c.4 : list_laps --------------------------------------------------
+
+
+def test_list_laps_ordered_by_index(db_conn: sqlite3.Connection) -> None:
+    upsert_athlete(db_conn, Athlete(id=42))
+    activity = Activity(id=2001, athlete_id=42, sport_type="Run", raw_json="{}")
+    laps_seed = [
+        # Inséré dans le désordre exprès → on vérifie que list_laps trie ASC.
+        Lap(id=301, activity_id=2001, lap_index=3, distance_m=70.0, moving_time_s=30),
+        Lap(id=302, activity_id=2001, lap_index=1, distance_m=2000.0, moving_time_s=900),
+        Lap(id=303, activity_id=2001, lap_index=2, distance_m=100.0, moving_time_s=30),
+    ]
+    insert_full_activity(db_conn, activity, [], laps_seed, [])
+
+    laps = list_laps(db_conn, 2001)
+    assert [lap.lap_index for lap in laps] == [1, 2, 3]
+    assert laps[0].distance_m == 2000.0
+
+
+def test_list_laps_empty_when_activity_has_no_laps(db_conn: sqlite3.Connection) -> None:
+    upsert_athlete(db_conn, Athlete(id=42))
+    insert_full_activity(
+        db_conn,
+        Activity(id=2002, athlete_id=42, sport_type="Yoga", raw_json="{}"),
+        [],
+        [],
+        [],
+    )
+    assert list_laps(db_conn, 2002) == []
+
+
+def test_list_laps_unknown_activity_returns_empty(db_conn: sqlite3.Connection) -> None:
+    # Pas d'erreur si l'activité n'existe pas — juste pas de laps.
+    assert list_laps(db_conn, 99999) == []

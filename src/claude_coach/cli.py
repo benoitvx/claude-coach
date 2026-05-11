@@ -42,6 +42,7 @@ from claude_coach.db import (
     insert_training_plan,
     list_activities,
     list_goals,
+    list_laps,
     list_planned_sessions,
     list_training_plans,
     metrics_values_equal,
@@ -56,6 +57,7 @@ from claude_coach.serializers import (
     athlete_metrics_to_dict,
     bucket_to_dict,
     goal_to_dict,
+    lap_to_dict,
     planned_session_to_dict,
     sync_log_to_dict,
     training_plan_to_dict,
@@ -966,6 +968,48 @@ def activity_show(activity_id: int, json_out: bool) -> None:
         click.echo(f"  appareil       : {a.device_name}")
     if a.description:
         click.echo(f"  description    : {a.description}")
+
+
+@activity.command("laps")
+@click.argument("activity_id", type=int)
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def activity_laps(activity_id: int, json_out: bool) -> None:
+    """Affiche les laps d'une activité (utile pour débrief d'intervalles)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        if get_activity(conn, activity_id) is None:
+            raise click.ClickException(f"Aucune activité #{activity_id}")
+        laps = list_laps(conn, activity_id)
+
+    if json_out:
+        _emit_json([lap_to_dict(lap) for lap in laps])
+        return
+
+    if not laps:
+        click.echo("Aucun lap enregistré pour cette activité.")
+        return
+
+    click.echo(
+        f"{'#':>3}  {'Dist':>7}  {'Durée':>6}  {'Allure':>8}  "
+        f"{'FCmoy':>5}  {'FCmax':>5}  {'Wmoy':>5}"
+    )
+    click.echo("-" * 60)
+    for lap in laps:
+        dist = f"{lap.distance_m:.0f}m" if lap.distance_m is not None else "-"
+        dur = f"{lap.moving_time_s}s" if lap.moving_time_s is not None else "-"
+        if lap.average_speed_ms and lap.average_speed_ms > 0:
+            pace_s_per_km = 1000.0 / lap.average_speed_ms
+            pace = f"{int(pace_s_per_km // 60)}'{int(pace_s_per_km % 60):02d}/km"
+        else:
+            pace = "-"
+        fc_moy = f"{int(lap.average_heartrate)}" if lap.average_heartrate else "-"
+        fc_max = f"{int(lap.max_heartrate)}" if lap.max_heartrate else "-"
+        watts = f"{int(lap.average_watts)}" if lap.average_watts else "-"
+        click.echo(
+            f"{lap.lap_index or '-':>3}  {dist:>7}  {dur:>6}  "
+            f"{pace:>8}  {fc_moy:>5}  {fc_max:>5}  {watts:>5}"
+        )
 
 
 @activity.command("stats")
