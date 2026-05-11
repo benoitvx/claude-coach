@@ -459,6 +459,7 @@ commandes de lecture acceptent `--json`.
 - `athlete show` (objet ou `null` si pas de saisie), `athlete history`
 - `activity list`, `activity show`, `activity stats` (lot 5c.2)
 - `activity laps <ID>` (lot 5c.4 — laps segmentés par la montre, hors `show` pour rester compact)
+- `activity streams <ID> [--type ...]` (lot 5c.5 — streams seconde-par-seconde, filtrable par type)
 
 Les commandes d'écriture (`add`, `complete`, `done`, `set`, `auth`, `sync`)
 n'ont pas de `--json` — l'agent se base sur le code de retour.

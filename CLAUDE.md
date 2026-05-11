@@ -62,6 +62,7 @@ claude-coach plan session done <ID>
 claude-coach activity list  [--from <DATE>] [--to <DATE>] [--sport ...] [--family run|ride|swim|...] [--limit N]
 claude-coach activity show  <ID>
 claude-coach activity laps  <ID>   # laps segmentés montre — pour débrief d'intervalles (lot 5c.4)
+claude-coach activity streams <ID> [--type heartrate|watts|...]  # streams seconde-par-seconde — pour analyser un long Z2 (lot 5c.5)
 claude-coach activity stats [--from <DATE>] [--to <DATE>] [--sport ...] [--family ...] [--by sport|week|month]
 ```
 

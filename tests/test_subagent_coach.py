@@ -61,9 +61,13 @@ def test_coach_body_mentions_key_concepts() -> None:
         "claude-coach activity",
         "claude-coach plan",
         "activity laps",
+        "activity streams",
         "--json",
         "polarisé",
         "périodisation",
+        "acwr",
+        "data quality",
+        "semantic check",
         "swim&run",
         "70.3",
     ]

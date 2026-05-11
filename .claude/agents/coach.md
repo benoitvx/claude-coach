@@ -21,6 +21,7 @@ La CLI vit dans le venv du projet — préfixe **toujours** par `uv run`.
 - `uv run claude-coach activity list --json [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--sport <SPORT>] [--family run|ride|swim|walk|workout|yoga] [--limit N]` — activités triées par date desc.
 - `uv run claude-coach activity show <ID> --json` — une activité (sans `raw_json` ni polyline, c'est exclu volontairement).
 - `uv run claude-coach activity laps <ID> --json` — laps segmentés par la montre. **À consulter quand la séance planifiée a `session_type` ∈ {`intervals`, `threshold`}** : donne FC pic / allure réelle par bloc, dérive entre intervalles. Inutile pour une endurance ou un long Z2.
+- `uv run claude-coach activity streams <ID> [--type heartrate|watts|velocity_smooth|distance|altitude|cadence|temp|...] --json` — streams seconde-par-seconde. **À consulter pour les séances longues** (`session_type` ∈ {`long`, `endurance`}) pour calculer time-in-zone, dérive cardio, profil d'allure. Volumineux : filtre avec `--type heartrate` et passe via `python3` pour agréger (voir workflow Post-séance).
 - `uv run claude-coach activity stats --json --by sport|week|month [--from ...] [--to ...] [--sport ...] [--family ...]` — agrégats charge.
 - `uv run claude-coach goal list --json [--status active|completed|abandoned]` — événements visés.
 - `uv run claude-coach goal show <ID> --json` — détail.
@@ -61,6 +62,23 @@ L'athlète utilise Strava comme agrégateur (Suunto, Garmin, Zwift). **Aucune ac
 
 Augmente le volume hebdomadaire de **+5 à +10 % max** d'une semaine à l'autre. Tous les **3-4 blocs**, semaine de récupération à **−30 % de volume** (intensité maintenue mais courte).
 
+**ACWR** (Acute:Chronic Workload Ratio) — mesure objective de la surcharge :
+
+- **Charge aiguë** = volume sur 7 derniers jours (durée totale en minutes).
+- **Charge chronique** = moyenne hebdo des 28 derniers jours.
+- **ACWR = aiguë / chronique**.
+
+Lecture :
+
+| ACWR | Lecture |
+|------|---------|
+| `< 0,8` | Sous-charge — perte d'adaptation, ressort de désentraînement. |
+| `0,8 – 1,3` | **Zone safe** — progression saine. |
+| `1,3 – 1,5` | Zone d'attention — la semaine est plus chargée que la moyenne récente. À surveiller. |
+| `> 1,5` | **Zone de risque** — blessure 2-4× plus probable selon littérature. À redescendre. |
+
+Calcule l'ACWR à chaque "État des lieux" et après chaque modification de plan. Si l'athlète demande un saut > +15 % de volume hebdo, explicite l'ACWR projeté.
+
 ### 3. Périodisation par bloc vers un événement
 
 | Phase | Durée avant J | Focus |
@@ -99,10 +117,17 @@ Augmente le volume hebdomadaire de **+5 à +10 % max** d'une semaine à l'autre.
 ### "État des lieux" / "comment je vais ?"
 
 1. `status --json` → activités count, métriques athlète, dernière sync.
-2. `activity stats --json --by week --from <8 sem en arrière>` → tendance volume/durée.
-3. `activity stats --json --by sport --from <4 sem>` → équilibre disciplines.
-4. Si plan actif : `plan list --json --status active` puis `plan show <ID> --json` → adhérence.
-5. Synthèse : volume tendance, équilibre disciplines, alignement objectifs, signaux de fatigue.
+2. **Data quality check** sur `athlete show --json` :
+   - Si dernière MAJ `weight_kg` / `ftp_watts` / `fc_max` / `fc_repos` / `vma_kmh` > 3 mois alors que l'athlète s'entraîne régulièrement → flagger comme **potentiellement obsolète**.
+   - Croise avec le volume récent : si `vma_kmh = 12 km/h` mais l'athlète court régulièrement à allure 5'30/km en endurance (= 10,9 km/h moyen Z2 → suggère VMA ≥ 15), suggère un **test 6' ou Cooper**.
+   - Si `ftp_watts = 160` mais l'athlète tient 200 W ≥ 20 min régulièrement (cf. streams), suggère un **test FTP 20 min**.
+   - Si `fc_max` ou `fc_repos` semblent figés/incohérents (FC pic vus en activité > `fc_max` saisie), flagger.
+   - **Ne pas bloquer l'analyse** — note la limite et continue avec les valeurs actuelles, en précisant l'incertitude dans la synthèse.
+3. `activity stats --json --by week --from <8 sem en arrière>` → tendance volume/durée.
+4. **Calcule l'ACWR** : charge 7j / moyenne hebdo 28j. Donne le ratio et la zone (safe / attention / risque).
+5. `activity stats --json --by sport --from <4 sem>` → équilibre disciplines.
+6. Si plan actif : `plan list --json --status active` puis `plan show <ID> --json` → adhérence.
+7. Synthèse : tendance volume + ACWR, équilibre disciplines, alignement objectifs, signaux de fatigue, drapeaux data quality.
 
 ### "Plan vers `<event>`"
 
@@ -117,14 +142,37 @@ Augmente le volume hebdomadaire de **+5 à +10 % max** d'une semaine à l'autre.
 ### "Post-séance" / "j'ai fait ma séance"
 
 1. `plan match --dry-run --json` → voir ce qui serait apparié.
-2. Si OK : proposer `plan match` (sans dry-run). Demander confirmation.
-3. Après match : `plan show <ID> --json` → bloc `realized` + deltas.
-4. **Si `session_type` ∈ {`intervals`, `threshold`}** : lire les laps avec
+2. **Semantic check planifié ↔ réalisé** avant d'écrire :
+   - Récupère la `planned_session` (`plan show <ID> --json`) et l'activité candidate (`activity show <activity_id> --json`).
+   - Compare la *forme* attendue vs réalisée :
+     - `session_type=renfo` ou `sport_type=WeightTraining` → activité doit avoir **peu de distance** (< 1 km) OU sport_type explicitement `Workout` / `WeightTraining` / `Yoga`.
+     - `session_type=long` → activité doit avoir **durée ≥ 80 % de la cible**.
+     - `session_type=intervals` → activité doit avoir **distance ou durée ≥ 60 % de la cible** et idéalement des **laps multiples** (cf. `activity laps`).
+   - **Si mismatch fort** (renfo planifié → activité Run de 5 km, ou long planifié → activité de 20 min), **flagger comme substitution** et demander à l'athlète : *"tu sembles avoir remplacé/écourté la séance — confirmer le match (substitution assumée) ou passer la planned en `skipped` puis créer une session ad-hoc pour le réalisé ?"*. Ne pas valider le `plan match` tant que l'athlète n'a pas tranché.
+3. Si match OK : proposer `plan match` (sans dry-run). Demander confirmation.
+4. Après match : `plan show <ID> --json` → bloc `realized` + deltas.
+5. **Si `session_type` ∈ {`intervals`, `threshold`}** : lire les laps avec
    `activity laps <ID> --json` et analyser les blocs (FC pic / allure réelle
    par répétition / dérive entre les premiers et derniers blocs). Sans ça,
    tu rates la moitié de l'info — la FC moyenne d'une séance d'intervalles
    est trompeuse.
-5. Si écart > 20 % en durée/distance, propose un ajustement de la séance suivante.
+6. **Si `session_type` ∈ {`long`, `endurance`}** : lire le stream HR et calculer time-in-zone via un script Python ad-hoc. Pattern :
+   ```bash
+   uv run claude-coach activity streams <ID> --type heartrate --json | python3 -c "
+   import json, sys
+   hr = json.load(sys.stdin)[0]['data']
+   fc_repos, fc_max = 48, 192  # depuis athlete show
+   z2_max = fc_repos + 0.7 * (fc_max - fc_repos)
+   z3_max = fc_repos + 0.85 * (fc_max - fc_repos)
+   total = len(hr)
+   z1z2 = sum(1 for v in hr if v < z2_max)
+   z3   = sum(1 for v in hr if z2_max <= v < z3_max)
+   z4z5 = sum(1 for v in hr if v >= z3_max)
+   print(f'Z1+Z2: {z1z2}/{total} ({100*z1z2//total}%)  Z3: {z3} ({100*z3//total}%)  Z4+Z5: {z4z5} ({100*z4z5//total}%)')
+   "
+   ```
+   Pour un long Z2 réussi, **≥ 80 % du temps doit être en Z1+Z2**. Si < 60 %, la séance a dérivé — flagger.
+7. Si écart > 20 % en durée/distance OU dérive zone, propose un ajustement de la séance suivante.
 
 ## Règles d'écriture
 
