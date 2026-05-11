@@ -93,6 +93,29 @@ def test_goal_complete_updates_status(monkeypatch: MonkeyPatch, tmp_path: Path) 
     assert len(completed) == 1
 
 
+def test_goal_abandon_updates_status(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(main, ["goal", "add", "--name", "X"])
+
+    result = runner.invoke(main, ["goal", "abandon", "1"])
+    assert result.exit_code == 0, result.output
+    assert "abandoned" in result.output
+
+    with connect(db_path) as conn:
+        migrate(conn)
+        abandoned = list_goals(conn, status="abandoned")
+    assert len(abandoned) == 1
+    assert abandoned[0].name == "X"
+
+
+def test_goal_abandon_unknown_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    result = CliRunner().invoke(main, ["goal", "abandon", "999"])
+    assert result.exit_code != 0
+    assert "Aucun objectif" in result.output
+
+
 def test_plan_add_with_goal(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     db_path = _setup_env(monkeypatch, tmp_path)
     runner = CliRunner()
@@ -235,6 +258,61 @@ def test_plan_show_displays_sessions(monkeypatch: MonkeyPatch, tmp_path: Path) -
     assert "Plan #1" in result.output
     assert "1 séances planifiées" in result.output
     assert "Run" in result.output
+
+
+def test_plan_complete_and_pause(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(
+        main, ["plan", "add", "--name", "P", "--start", "2026-06-01", "--end", "2026-09-15"]
+    )
+    runner.invoke(
+        main, ["plan", "add", "--name", "Q", "--start", "2026-10-01", "--end", "2026-12-15"]
+    )
+
+    result_pause = runner.invoke(main, ["plan", "pause", "1"])
+    assert result_pause.exit_code == 0, result_pause.output
+    assert "paused" in result_pause.output
+
+    result_done = runner.invoke(main, ["plan", "complete", "2"])
+    assert result_done.exit_code == 0, result_done.output
+    assert "completed" in result_done.output
+
+    with connect(db_path) as conn:
+        migrate(conn)
+        p1 = get_training_plan(conn, 1)
+        p2 = get_training_plan(conn, 2)
+    assert p1 is not None and p1.status == "paused"
+    assert p2 is not None and p2.status == "completed"
+
+
+def test_plan_complete_unknown_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    result = CliRunner().invoke(main, ["plan", "complete", "999"])
+    assert result.exit_code != 0
+    assert "Aucun plan" in result.output
+
+
+def test_plan_session_skip_updates_status(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(
+        main, ["plan", "add", "--name", "P", "--start", "2026-06-01", "--end", "2026-09-15"]
+    )
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-15", "--sport", "Run"],
+    )
+
+    result = CliRunner().invoke(main, ["plan", "session", "skip", "1"])
+    assert result.exit_code == 0, result.output
+    assert "skipped" in result.output
+
+    with connect(db_path) as conn:
+        migrate(conn)
+        s = get_planned_session(conn, 1)
+    assert s is not None
+    assert s.status == "skipped"
 
 
 def test_plan_session_done_updates_status(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:

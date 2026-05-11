@@ -51,6 +51,7 @@ from claude_coach.db import (
     stats_by_sport,
     update_goal_status,
     update_planned_session_status,
+    update_training_plan_status,
 )
 from claude_coach.models import Activity, PlannedSession
 from claude_coach.serializers import (
@@ -508,6 +509,20 @@ def goal_complete(goal_id: int) -> None:
     click.echo(f"OK — objectif #{g.id} marqué '{g.status}'")
 
 
+@goal.command("abandon")
+@click.argument("goal_id", type=int)
+def goal_abandon(goal_id: int) -> None:
+    """Marque l'objectif comme abandonné (préserve l'historique, exclut des analyses)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        try:
+            g = update_goal_status(conn, goal_id, "abandoned")
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — objectif #{g.id} marqué '{g.status}'")
+
+
 @main.group()
 def plan() -> None:
     """Gestion des plans d'entraînement et des séances planifiées."""
@@ -764,6 +779,34 @@ def _format_match_line(r: MatchResult, *, matched: bool) -> str:
     return f"{base} → activity {act.id} ({when}, {dur})"
 
 
+@plan.command("complete")
+@click.argument("plan_id", type=int)
+def plan_complete(plan_id: int) -> None:
+    """Marque le plan comme complété (fin de bloc, plan terminé)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        try:
+            p = update_training_plan_status(conn, plan_id, "completed")
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — plan #{p.id} marqué '{p.status}'")
+
+
+@plan.command("pause")
+@click.argument("plan_id", type=int)
+def plan_pause(plan_id: int) -> None:
+    """Met le plan en pause (blessure, voyage, etc. — peut être réactivé en DB)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        try:
+            p = update_training_plan_status(conn, plan_id, "paused")
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — plan #{p.id} marqué '{p.status}'")
+
+
 @plan.group("session")
 def plan_session() -> None:
     """Gestion des séances planifiées d'un plan."""
@@ -849,6 +892,20 @@ def plan_session_done(session_id: int) -> None:
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
     click.echo(f"OK — séance #{s.id} marquée 'done'")
+
+
+@plan_session.command("skip")
+@click.argument("session_id", type=int)
+def plan_session_skip(session_id: int) -> None:
+    """Marque une séance comme passée volontairement (substitution, repos, etc.)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        try:
+            s = update_planned_session_status(conn, session_id, "skipped")
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — séance #{s.id} marquée '{s.status}'")
 
 
 # --- Sous-commandes activity (Lot 5c) ---------------------------------------

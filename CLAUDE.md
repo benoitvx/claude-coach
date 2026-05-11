@@ -48,15 +48,19 @@ claude-coach goal add --name <NAME> [--target-date YYYY-MM-DD] [--discipline ...
 claude-coach goal list [--status ...]
 claude-coach goal show <ID>
 claude-coach goal complete <ID>
+claude-coach goal abandon <ID>
 
 claude-coach plan add --name <NAME> --start <DATE> --end <DATE> [--goal-id <ID>]
 claude-coach plan list [--goal-id <ID>] [--status ...]
 claude-coach plan show <ID>
+claude-coach plan complete <ID>
+claude-coach plan pause <ID>
 claude-coach plan match [--plan-id <ID>] [--dry-run]   # apparie séances ↔ activités (lot 5b)
 
 claude-coach plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swim|...> [opts]
 claude-coach plan session list --plan-id <ID> [--status ...]
 claude-coach plan session done <ID>
+claude-coach plan session skip <ID>
 
 # Lecture activités pour l'agent coach (lot 5c)
 claude-coach activity list  [--from <DATE>] [--to <DATE>] [--sport ...] [--family run|ride|swim|...] [--limit N]

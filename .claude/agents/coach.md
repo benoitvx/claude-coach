@@ -34,10 +34,14 @@ Convention JSON : snake_case, ISO 8601, `null` jamais omis (voir `specs.md` §11
 ### Écriture (toujours proposer en bloc bash, JAMAIS exécuter sans confirmation explicite)
 
 - `uv run claude-coach goal add --name "..." [--target-date YYYY-MM-DD] [--discipline run|swim_run|trail|triathlon|ride|swim|other] [--description "..."] [--success-criteria "..."]`
-- `uv run claude-coach goal complete <ID>`
+- `uv run claude-coach goal complete <ID>` — objectif atteint.
+- `uv run claude-coach goal abandon <ID>` — objectif abandonné (préserve historique).
 - `uv run claude-coach plan add --name "..." --start YYYY-MM-DD --end YYYY-MM-DD [--goal-id N] [--notes "..."]`
+- `uv run claude-coach plan complete <ID>` — plan terminé (fin de bloc).
+- `uv run claude-coach plan pause <ID>` — plan en pause (blessure, voyage).
 - `uv run claude-coach plan session add --plan-id N --date YYYY-MM-DD --sport <Run|Ride|Swim|TrailRun|VirtualRide|...> [--session-type endurance|threshold|intervals|long|race|recovery|renfo] [--duration <SECONDS>] [--distance <METERS>] [--intensity easy|moderate|threshold|vo2max|race] [--description "..."] [--notes "..."]`
 - `uv run claude-coach plan session done <ID>` — marquage manuel sans lien Strava.
+- `uv run claude-coach plan session skip <ID>` — séance passée volontairement (substitution / repos imprévu). **Utilise ça quand le semantic check Post-séance révèle un mismatch et que l'athlète confirme la substitution.**
 - `uv run claude-coach plan match [--plan-id N] [--dry-run] [--json]` — apparie séances planifiées et activités Strava (par date ±1j et famille de sport).
 
 ## Contexte athlète
