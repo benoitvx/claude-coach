@@ -8,7 +8,7 @@ from pytest import MonkeyPatch
 
 from claude_coach.cli import main
 from claude_coach.db import connect, insert_full_activity, migrate, upsert_athlete
-from claude_coach.models import Activity, Athlete, Lap
+from claude_coach.models import Activity, Athlete, Lap, Stream
 
 
 def _setup_db_env(monkeypatch: MonkeyPatch, db_path: Path) -> None:
@@ -313,5 +313,92 @@ def test_activity_laps_unknown_activity_errors(monkeypatch: MonkeyPatch, db_path
         conn.close()
 
     result = CliRunner().invoke(main, ["activity", "laps", "999999"])
+    assert result.exit_code != 0
+    assert "Aucune activité" in result.output
+
+
+# --- Lot 5c.5 : activity streams ------------------------------------------
+
+
+def _seed_activity_with_streams(db_path: Path) -> None:
+    conn = connect(db_path)
+    try:
+        migrate(conn)
+        upsert_athlete(conn, Athlete(id=42))
+        streams = [
+            Stream(
+                activity_id=5001,
+                stream_type="heartrate",
+                data="[120, 130, 140, 145, 150]",
+                resolution="high",
+            ),
+            Stream(
+                activity_id=5001,
+                stream_type="velocity_smooth",
+                data="[2.5, 2.7, 3.0, 3.2, 3.1]",
+                resolution="high",
+            ),
+            Stream(activity_id=5001, stream_type="time", data="[0, 1, 2, 3, 4]", resolution="high"),
+        ]
+        insert_full_activity(
+            conn,
+            Activity(id=5001, athlete_id=42, sport_type="Run", raw_json="{}"),
+            streams,
+            [],
+            [],
+        )
+    finally:
+        conn.close()
+
+
+def test_activity_streams_human_summary(monkeypatch: MonkeyPatch, db_path: Path) -> None:
+    _setup_db_env(monkeypatch, db_path)
+    _seed_activity_with_streams(db_path)
+
+    result = CliRunner().invoke(main, ["activity", "streams", "5001"])
+    assert result.exit_code == 0, result.output
+    assert "heartrate" in result.output
+    assert "velocity_smooth" in result.output
+    # Samples count visible
+    assert "5" in result.output
+
+
+def test_activity_streams_filter_by_type(monkeypatch: MonkeyPatch, db_path: Path) -> None:
+    _setup_db_env(monkeypatch, db_path)
+    _seed_activity_with_streams(db_path)
+
+    result = CliRunner().invoke(
+        main, ["activity", "streams", "5001", "--type", "heartrate", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload) == 1
+    assert payload[0]["stream_type"] == "heartrate"
+    assert payload[0]["data"] == [120, 130, 140, 145, 150]
+
+
+def test_activity_streams_json_parses_data(monkeypatch: MonkeyPatch, db_path: Path) -> None:
+    _setup_db_env(monkeypatch, db_path)
+    _seed_activity_with_streams(db_path)
+
+    result = CliRunner().invoke(main, ["activity", "streams", "5001", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    types = {s["stream_type"]: s for s in payload}
+    assert set(types) == {"heartrate", "velocity_smooth", "time"}
+    # Le champ `data` est un array natif, pas une string JSON
+    assert isinstance(types["heartrate"]["data"], list)
+    assert types["velocity_smooth"]["data"][2] == 3.0
+
+
+def test_activity_streams_unknown_activity_errors(monkeypatch: MonkeyPatch, db_path: Path) -> None:
+    _setup_db_env(monkeypatch, db_path)
+    conn = connect(db_path)
+    try:
+        migrate(conn)
+    finally:
+        conn.close()
+
+    result = CliRunner().invoke(main, ["activity", "streams", "999999"])
     assert result.exit_code != 0
     assert "Aucune activité" in result.output

@@ -10,6 +10,7 @@ Conventions :
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
         Goal,
         Lap,
         PlannedSession,
+        Stream,
         SyncLog,
         TrainingPlan,
     )
@@ -64,6 +66,25 @@ def bucket_to_dict(b: ActivityBucket) -> dict[str, object]:
         "distance_m": b.distance_m,
         "moving_time_s": b.moving_time_s,
         "elevation_gain_m": b.elevation_gain_m,
+    }
+
+
+def stream_to_dict(stream: Stream) -> dict[str, object]:
+    """Sérialise un Stream avec `data` parsé en list[int|float|list] (depuis JSON).
+
+    Format Strava : `[v1, v2, ...]` pour heartrate / watts / velocity_smooth /
+    distance / altitude / cadence / temp ; `[[lat, lng], ...]` pour latlng ;
+    `[bool, ...]` pour moving.
+    """
+    try:
+        parsed = json.loads(stream.data) if stream.data else []
+    except json.JSONDecodeError:
+        parsed = []
+    return {
+        "activity_id": stream.activity_id,
+        "stream_type": stream.stream_type,
+        "resolution": stream.resolution,
+        "data": parsed,
     }
 
 

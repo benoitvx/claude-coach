@@ -30,6 +30,7 @@ from claude_coach.db import (
     list_goals,
     list_laps,
     list_planned_sessions,
+    list_streams,
     list_training_plans,
     metrics_values_equal,
     migrate,
@@ -703,3 +704,50 @@ def test_list_laps_empty_when_activity_has_no_laps(db_conn: sqlite3.Connection) 
 def test_list_laps_unknown_activity_returns_empty(db_conn: sqlite3.Connection) -> None:
     # Pas d'erreur si l'activité n'existe pas — juste pas de laps.
     assert list_laps(db_conn, 99999) == []
+
+
+# --- Lot 5c.5 : list_streams -----------------------------------------------
+
+
+def test_list_streams_filters_by_type(db_conn: sqlite3.Connection) -> None:
+    upsert_athlete(db_conn, Athlete(id=42))
+    streams_seed = [
+        Stream(activity_id=4001, stream_type="time", data="[0, 1, 2]", resolution="high"),
+        Stream(
+            activity_id=4001,
+            stream_type="heartrate",
+            data="[120, 125, 130]",
+            resolution="high",
+        ),
+        Stream(activity_id=4001, stream_type="watts", data="[100, 110, 120]", resolution="high"),
+    ]
+    insert_full_activity(
+        db_conn,
+        Activity(id=4001, athlete_id=42, sport_type="Run", raw_json="{}"),
+        streams_seed,
+        [],
+        [],
+    )
+
+    all_streams = list_streams(db_conn, 4001)
+    assert {s.stream_type for s in all_streams} == {"time", "heartrate", "watts"}
+
+    hr_only = list_streams(db_conn, 4001, stream_types=["heartrate"])
+    assert len(hr_only) == 1
+    assert hr_only[0].stream_type == "heartrate"
+
+    multi = list_streams(db_conn, 4001, stream_types=["heartrate", "watts"])
+    assert {s.stream_type for s in multi} == {"heartrate", "watts"}
+
+
+def test_list_streams_empty_when_no_streams(db_conn: sqlite3.Connection) -> None:
+    upsert_athlete(db_conn, Athlete(id=42))
+    insert_full_activity(
+        db_conn,
+        Activity(id=4002, athlete_id=42, sport_type="Yoga", raw_json="{}"),
+        [],
+        [],
+        [],
+    )
+    assert list_streams(db_conn, 4002) == []
+    assert list_streams(db_conn, 99999) == []

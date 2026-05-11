@@ -44,6 +44,7 @@ from claude_coach.db import (
     list_goals,
     list_laps,
     list_planned_sessions,
+    list_streams,
     list_training_plans,
     metrics_values_equal,
     migrate,
@@ -59,6 +60,7 @@ from claude_coach.serializers import (
     goal_to_dict,
     lap_to_dict,
     planned_session_to_dict,
+    stream_to_dict,
     sync_log_to_dict,
     training_plan_to_dict,
 )
@@ -1010,6 +1012,51 @@ def activity_laps(activity_id: int, json_out: bool) -> None:
             f"{lap.lap_index or '-':>3}  {dist:>7}  {dur:>6}  "
             f"{pace:>8}  {fc_moy:>5}  {fc_max:>5}  {watts:>5}"
         )
+
+
+@activity.command("streams")
+@click.argument("activity_id", type=int)
+@click.option(
+    "--type",
+    "stream_types",
+    multiple=True,
+    help=(
+        "Type(s) de stream à inclure (heartrate, watts, velocity_smooth, distance, "
+        "altitude, cadence, temp, latlng, time, moving, grade_smooth). Répétable. "
+        "Sans option : tous les streams."
+    ),
+)
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def activity_streams(activity_id: int, stream_types: tuple[str, ...], json_out: bool) -> None:
+    """Affiche les streams seconde-par-seconde d'une activité.
+
+    Utile pour analyser un long Z2 (% temps en zone FC via le stream heartrate)
+    ou la dérive cardio sur une séance longue. Volumineux en sortie : préférer
+    `--type` pour filtrer.
+    """
+    db_path = db_path_from_env()
+    types_list = list(stream_types) if stream_types else None
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        if get_activity(conn, activity_id) is None:
+            raise click.ClickException(f"Aucune activité #{activity_id}")
+        streams = list_streams(conn, activity_id, stream_types=types_list)
+
+    if json_out:
+        _emit_json([stream_to_dict(s) for s in streams])
+        return
+
+    if not streams:
+        click.echo("Aucun stream pour cette activité.")
+        return
+
+    click.echo(f"{'Type':<18} {'Résolution':<11} {'Samples':>8}")
+    click.echo("-" * 50)
+    for s in streams:
+        d = stream_to_dict(s)
+        data = d["data"]
+        n = len(data) if isinstance(data, list) else 0
+        click.echo(f"{s.stream_type:<18} {(s.resolution or '-'):<11} {n:>8}")
 
 
 @activity.command("stats")

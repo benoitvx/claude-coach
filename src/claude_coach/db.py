@@ -600,6 +600,42 @@ def _row_to_lap(row: sqlite3.Row) -> Lap:
     )
 
 
+def _row_to_stream(row: sqlite3.Row) -> Stream:
+    return Stream(
+        activity_id=row["activity_id"],
+        stream_type=row["stream_type"],
+        data=row["data"] or "",
+        resolution=row["resolution"],
+    )
+
+
+def list_streams(
+    conn: sqlite3.Connection,
+    activity_id: int,
+    *,
+    stream_types: list[str] | None = None,
+) -> list[Stream]:
+    """Renvoie les streams seconde-par-seconde d'une activité.
+
+    Le champ `data` reste sous forme JSON brute (list d'entiers/floats ou pairs
+    pour latlng) — la désérialisation est faite côté sérialiseur quand on
+    expose en `--json`. Filtrage optionnel par `stream_types` (ex:
+    `["heartrate", "watts"]`).
+    """
+    sql = (
+        "SELECT activity_id, stream_type, data, resolution FROM activity_streams "
+        "WHERE activity_id = ?"
+    )
+    params: tuple[object, ...] = (activity_id,)
+    if stream_types:
+        placeholders = ",".join("?" * len(stream_types))
+        sql += f" AND stream_type IN ({placeholders})"
+        params = (activity_id, *stream_types)
+    sql += " ORDER BY stream_type ASC"
+    rows = conn.execute(sql, params).fetchall()
+    return [_row_to_stream(row) for row in rows]
+
+
 def list_laps(conn: sqlite3.Connection, activity_id: int) -> list[Lap]:
     """Renvoie les laps d'une activité, triés par `lap_index` ASC.
 
