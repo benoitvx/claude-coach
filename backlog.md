@@ -62,6 +62,7 @@ Itérations post-livraison (mai 2026, suite au dogfood) :
 - **5c.6** : status transitions manquantes (`goal abandon`, `plan complete/pause`, `plan session skip`)
 - **5d.1** : workflow laps dans `coach.md` (Post-séance)
 - **5d.2** : ACWR formel + data quality check + semantic check planifié↔réalisé + pattern stream long Z2
+- **5d.3** : statut `abandoned` pour les plans (symétrique `goal abandon`)
 
 - [x] **5.1** Définir le modèle de données pour les objectifs (table `goals` : type, date cible, description, critères de réussite) _(Lot 5a, migration 003)_
 - [x] **5.2** Définir le modèle de données pour les plans d'entraînement (tables `training_plans`, `planned_sessions`) _(Lot 5a, migration 003)_

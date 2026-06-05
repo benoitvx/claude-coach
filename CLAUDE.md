@@ -55,6 +55,7 @@ claude-coach plan list [--goal-id <ID>] [--status ...]
 claude-coach plan show <ID>
 claude-coach plan complete <ID>
 claude-coach plan pause <ID>
+claude-coach plan abandon <ID>
 claude-coach plan match [--plan-id <ID>] [--dry-run]   # apparie séances ↔ activités (lot 5b)
 
 claude-coach plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swim|...> [opts]

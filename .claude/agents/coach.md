@@ -37,8 +37,9 @@ Convention JSON : snake_case, ISO 8601, `null` jamais omis (voir `specs.md` §11
 - `uv run claude-coach goal complete <ID>` — objectif atteint.
 - `uv run claude-coach goal abandon <ID>` — objectif abandonné (préserve historique).
 - `uv run claude-coach plan add --name "..." --start YYYY-MM-DD --end YYYY-MM-DD [--goal-id N] [--notes "..."]`
-- `uv run claude-coach plan complete <ID>` — plan terminé (fin de bloc).
-- `uv run claude-coach plan pause <ID>` — plan en pause (blessure, voyage).
+- `uv run claude-coach plan complete <ID>` — plan **mené à terme** (fin de bloc planifié).
+- `uv run claude-coach plan pause <ID>` — plan en pause **temporaire** (blessure courte, voyage, vie pro intense). Vocation à reprendre.
+- `uv run claude-coach plan abandon <ID>` — plan **abandonné** (objectif changé, blessure longue, plan inadapté). Ne sera pas repris. Préserve l'historique mais distinct de `complete`.
 - `uv run claude-coach plan session add --plan-id N --date YYYY-MM-DD --sport <Run|Ride|Swim|TrailRun|VirtualRide|...> [--session-type endurance|threshold|intervals|long|race|recovery|renfo] [--duration <SECONDS>] [--distance <METERS>] [--intensity easy|moderate|threshold|vo2max|race] [--description "..."] [--notes "..."]`
 - `uv run claude-coach plan session done <ID>` — marquage manuel sans lien Strava.
 - `uv run claude-coach plan session skip <ID>` — séance passée volontairement (substitution / repos imprévu). **Utilise ça quand le semantic check Post-séance révèle un mismatch et que l'athlète confirme la substitution.**

@@ -1,6 +1,47 @@
 # Tâche en cours
 
-Aucune tâche en cours — **phase dogfood**.
+## Lot 5d.3 — Statut `abandoned` pour les plans
+
+Symétriser le pattern `goal abandon` côté `plan` : aujourd'hui un plan
+abandonné est forcé en `completed`, ce qui fausse l'historique. Bug remonté
+par le coach pendant le dogfood (plan S22 marqué `completed` faute de mieux).
+
+### Plan
+
+**Code**
+- [x] `src/claude_coach/db.py:809` — ajouter `"abandoned"` à `PLAN_STATUSES`
+- [x] `src/claude_coach/cli.py` — ajouter commande `plan abandon <ID>` après `plan_pause` (copie pattern `plan_complete` + texte d'aide aligné sur `goal_abandon`)
+
+**Docs**
+- [x] `specs.md:366` — `status` row de `training_plans` : `active / completed / paused / abandoned`
+- [x] `CLAUDE.md` — section CLI : ajouter `claude-coach plan abandon <ID>`
+- [x] `.claude/agents/coach.md` — section "Écriture" : ajouter `plan abandon` + précision quand l'utiliser
+- [x] `backlog.md` — créer une entrée `5d.3 plan abandon` cochée
+
+**Tests**
+- [x] `tests/test_cli_coach.py` — ajouter `test_plan_abandon_updates_status`
+- [x] `tests/test_cli_coach.py` — ajouter `test_plan_abandon_unknown_errors`
+
+**Validation**
+- [x] `make validate` passe
+- [x] Test manuel CLI : add → abandon → list --status abandoned --json
+- [x] **Corriger plan S22 réel** : `plan list --status completed --json` → identifier ID → `plan abandon <ID>`
+- [x] Commit
+
+### Résultat
+
+- `PLAN_STATUSES` étendu à `("active", "completed", "paused", "abandoned")`.
+- Nouvelle commande `claude-coach plan abandon <ID>` (cli.py, après `plan pause`).
+- 2 tests ajoutés (`test_plan_abandon_updates_status`, `test_plan_abandon_unknown_errors`).
+- Docs synchronisées : `specs.md`, `CLAUDE.md`, `coach.md`, `backlog.md`.
+- `make validate` ✅ — 214 tests verts (+2).
+- **Fix appliqué** : plan #2 "S22 - Reprise post-op 25-31 mai" repassé de `completed` → `abandoned`.
+
+---
+
+## Contexte historique conservé
+
+**Phase dogfood ouverte (2026-05-11).**
 
 ## État du projet (2026-05-11)
 

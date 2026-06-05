@@ -807,6 +807,20 @@ def plan_pause(plan_id: int) -> None:
     click.echo(f"OK — plan #{p.id} marqué '{p.status}'")
 
 
+@plan.command("abandon")
+@click.argument("plan_id", type=int)
+def plan_abandon(plan_id: int) -> None:
+    """Marque le plan comme abandonné (préserve l'historique, distinct de 'completed')."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        try:
+            p = update_training_plan_status(conn, plan_id, "abandoned")
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — plan #{p.id} marqué '{p.status}'")
+
+
 @plan.group("session")
 def plan_session() -> None:
     """Gestion des séances planifiées d'un plan."""

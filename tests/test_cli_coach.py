@@ -293,6 +293,30 @@ def test_plan_complete_unknown_errors(monkeypatch: MonkeyPatch, tmp_path: Path) 
     assert "Aucun plan" in result.output
 
 
+def test_plan_abandon_updates_status(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(
+        main, ["plan", "add", "--name", "P", "--start", "2026-06-01", "--end", "2026-09-15"]
+    )
+
+    result = runner.invoke(main, ["plan", "abandon", "1"])
+    assert result.exit_code == 0, result.output
+    assert "abandoned" in result.output
+
+    with connect(db_path) as conn:
+        migrate(conn)
+        p = get_training_plan(conn, 1)
+    assert p is not None and p.status == "abandoned"
+
+
+def test_plan_abandon_unknown_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    result = CliRunner().invoke(main, ["plan", "abandon", "999"])
+    assert result.exit_code != 0
+    assert "Aucun plan" in result.output
+
+
 def test_plan_session_skip_updates_status(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     db_path = _setup_env(monkeypatch, tmp_path)
     runner = CliRunner()

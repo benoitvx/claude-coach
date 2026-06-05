@@ -363,7 +363,7 @@ Plan d'entraînement, optionnellement rattaché à un goal.
 | name | TEXT NOT NULL | |
 | start_date | TEXT NOT NULL | ISO date |
 | end_date | TEXT NOT NULL | ISO date |
-| status | TEXT NOT NULL | active / completed / paused (default 'active') |
+| status | TEXT NOT NULL | active / completed / paused / abandoned (default 'active') |
 | notes | TEXT | |
 | created_at | TEXT NOT NULL | |
 | updated_at | TEXT NOT NULL | |

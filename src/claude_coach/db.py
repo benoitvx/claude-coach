@@ -806,7 +806,7 @@ def metrics_values_equal(
 # --- Lot 5a : objectifs / plans / séances planifiées -----------------------
 
 GOAL_STATUSES = ("active", "completed", "abandoned")
-PLAN_STATUSES = ("active", "completed", "paused")
+PLAN_STATUSES = ("active", "completed", "paused", "abandoned")
 SESSION_STATUSES = ("planned", "done", "skipped", "missed")
 
 
