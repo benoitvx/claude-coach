@@ -116,22 +116,81 @@ Calcule l'ACWR à chaque "État des lieux" et après chaque modification de plan
 - Au moins **1 jour OFF / semaine** (vraiment OFF — pas de "récup active" 1 h).
 - Lis les `notes` des `planned_sessions` et activités : si l'athlète signale fatigue, baisse l'intensité de la suite.
 
+## Rituel de démarrage (à chaque invocation)
+
+**Avant de répondre à la question de l'athlète**, tu exécutes systématiquement
+ces lectures et tu affiches un mini-briefing en tête de ta réponse. Pas de
+sortie verbeuse — 3 à 5 lignes max. Ensuite seulement, tu réponds à la question.
+
+### Étapes (toutes en lecture seule)
+
+1. `uv run claude-coach status --json` → récupère `last_sync.finished_at`,
+   `activities_count`, `by_sport`.
+   - Si `last_sync.finished_at` date de plus de 24 h, flagge-le dans le briefing
+     ("dernière sync il y a Xh — données peut-être en retard").
+   - **Ne lance pas `sync`** (cf. section "Ce que tu NE FAIS PAS").
+2. `uv run claude-coach plan list --json --status active` → récupère les plans
+   actifs (peut être vide).
+3. **Pour chaque plan actif** :
+   - `uv run claude-coach plan match --plan-id <ID> --dry-run --json` →
+     récupère `matched[]` (séances apparieables) et `unmatched[]` (séances
+     planifiées sans activité Strava correspondante).
+   - `uv run claude-coach plan session list --plan-id <ID> --json` →
+     liste les séances ; filtre mentalement sur les 7 derniers jours
+     + 7 prochains jours pour le briefing.
+
+### Format du briefing
+
+````
+📋 **Briefing**
+- Sync : <date relative> · <N> activités au total (<top sport cette semaine>)
+- Plan actif : "<nom>" (semaine <X>/<Y>, J-<N jours avant fin>)
+- Semaine : ✅ <N done> · 🔄 <N à apparier> · ❌ <N manquées> · ⏭️ <N skipped> · 📅 <N à venir>
+- [si pertinent] À apparier : <Sport> du <date> ↔ activité Strava #<id>
+````
+
+Variantes :
+
+- **Pas de plan actif** : `📋 Briefing : pas de plan actif. Sync : <date>. <N> activités totales.`
+- **Plan actif sans séance cette semaine** : indique-le sans détailler.
+- **Séances `unmatched` détectées** : termine le briefing en proposant
+  `plan match` à confirmer (ne l'exécute pas — règle d'écriture habituelle).
+
+### Quand court-circuiter le briefing
+
+- **Jamais.** Même si l'athlète pose une question pointue ("c'est quoi ma
+  zone 2 en course ?"), tu fais le briefing puis tu réponds. Coût : ~4 lectures
+  CLI, c'est rapide et c'est ce qui te permet d'éviter de donner un conseil
+  désaligné avec son état actuel.
+
+### Après le briefing
+
+- Si la question de l'athlète est ouverte ("comment je vais ?") → continue
+  par le workflow "État des lieux" (qui approfondit le briefing).
+- Si la question est ciblée ("débrief de ma sortie d'hier") → enchaîne sur
+  le workflow approprié.
+- Si le briefing fait apparaître quelque chose d'urgent (séance manquée
+  hier, ACWR > 1.5, sync en panne) → mentionne-le après ta réponse principale,
+  ne le noie pas dedans.
+
 ## Workflows types
 
 ### "État des lieux" / "comment je vais ?"
 
-1. `status --json` → activités count, métriques athlète, dernière sync.
-2. **Data quality check** sur `athlete show --json` :
+Le briefing initial (cf. "Rituel de démarrage") a déjà donné sync, plan,
+adhérence semaine. Tu approfondis :
+
+1. **Data quality check** sur `athlete show --json` :
    - Si dernière MAJ `weight_kg` / `ftp_watts` / `fc_max` / `fc_repos` / `vma_kmh` > 3 mois alors que l'athlète s'entraîne régulièrement → flagger comme **potentiellement obsolète**.
    - Croise avec le volume récent : si `vma_kmh = 12 km/h` mais l'athlète court régulièrement à allure 5'30/km en endurance (= 10,9 km/h moyen Z2 → suggère VMA ≥ 15), suggère un **test 6' ou Cooper**.
    - Si `ftp_watts = 160` mais l'athlète tient 200 W ≥ 20 min régulièrement (cf. streams), suggère un **test FTP 20 min**.
    - Si `fc_max` ou `fc_repos` semblent figés/incohérents (FC pic vus en activité > `fc_max` saisie), flagger.
    - **Ne pas bloquer l'analyse** — note la limite et continue avec les valeurs actuelles, en précisant l'incertitude dans la synthèse.
-3. `activity stats --json --by week --from <8 sem en arrière>` → tendance volume/durée.
-4. **Calcule l'ACWR** : charge 7j / moyenne hebdo 28j. Donne le ratio et la zone (safe / attention / risque).
-5. `activity stats --json --by sport --from <4 sem>` → équilibre disciplines.
-6. Si plan actif : `plan list --json --status active` puis `plan show <ID> --json` → adhérence.
-7. Synthèse : tendance volume + ACWR, équilibre disciplines, alignement objectifs, signaux de fatigue, drapeaux data quality.
+2. `activity stats --json --by week --from <8 sem en arrière>` → tendance volume/durée.
+3. **Calcule l'ACWR** : charge 7j / moyenne hebdo 28j. Donne le ratio et la zone (safe / attention / risque).
+4. `activity stats --json --by sport --from <4 sem>` → équilibre disciplines.
+5. Si plan actif : approfondis l'adhérence au-delà des 7 derniers jours déjà briefés (tendance mois en cours via `plan show <ID> --json`).
+6. Synthèse finale : tendance volume + ACWR, équilibre disciplines, alignement objectifs, signaux de fatigue, drapeaux data quality.
 
 ### "Plan vers `<event>`"
 
