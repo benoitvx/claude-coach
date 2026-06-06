@@ -137,3 +137,9 @@ Format :
 **Correction** : la bonne approche
 **Pattern à retenir** : règle générale à appliquer la prochaine fois
 -->
+
+## 2026-06-06 — Coach : sync + ressenti avant débrief
+**Contexte** : test matinal. L'athlète demande "analyse ma dernière course et compare-la au plan". Le coach a débriefé une course du 11 mai alors que la vraie dernière séance datait de la veille (5 juin), non encore synchronisée (launchd 10:00 passé avant la sortie). Il a aussi débriefé sans demander le ressenti.
+**Erreur** : (1) règle "ne lance jamais sync" trop stricte → le coach analyse une activité périmée. La sync launchd 10:00 ne couvre pas les séances faites après 10:00 le jour même. (2) Débrief 100 % data, sans le ressenti qui distingue "FC haute mais facile" de "FC normale mais jambes lourdes".
+**Correction** : `.claude/agents/coach.md` — (1) le rituel de démarrage lance désormais `sync` **incrémentale** systématiquement (jamais `sync --full`) pour garantir la vraie dernière séance. (2) Workflow Post-séance : étape 0 = demander le ressenti (RPE, jambes, souffle, douleurs, sommeil) et **attendre la réponse** avant d'analyser.
+**Pattern à retenir** : un coach qui analyse doit d'abord garantir la fraîcheur de ses données (sync légère systématique) et recueillir le subjectif avant l'objectif — la donnée seule ment sur la fatigue.
