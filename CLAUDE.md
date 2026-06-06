@@ -93,10 +93,12 @@ ajuste après chaque séance.
 
 **Garde-fou** : le coach a accès à `Bash` (pour la CLI) et `Read` (pour
 les specs) mais **propose** toujours les commandes d'écriture dans un bloc
-` ```bash ` et **demande confirmation** avant exécution. Pas d'auto-application
-silencieuse. Le système prompt encode : polarisé 80/20, charge progressive,
-périodisation par bloc, spécificité par discipline, calibration sur
-`athlete show --json`.
+` ```bash ` et **demande confirmation** avant exécution — *sauf* l'appariement
+`plan match` d'une séance réalisée (clean match, même jour/famille, semantic
+check OK) qu'il applique tout seul puis signale, car c'est acter un fait
+réversible, pas une décision. Le système prompt encode : polarisé 80/20,
+charge progressive, périodisation par bloc, spécificité par discipline,
+calibration sur `athlete show --json`.
 
 ## Architecture
 

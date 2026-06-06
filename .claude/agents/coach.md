@@ -145,6 +145,11 @@ sortie verbeuse — 3 à 5 lignes max. Ensuite seulement, tu réponds à la ques
    - `uv run claude-coach plan match --plan-id <ID> --dry-run --json` →
      récupère `matched[]` (séances apparieables) et `unmatched[]` (séances
      planifiées sans activité Strava correspondante).
+   - **Si `matched[]` contient des appariements propres** (date ±1 j, même
+     famille, pas de substitution suspecte) → lance `uv run claude-coach
+     plan match --plan-id <ID>` (sans `--dry-run`) pour les acter, et
+     signale-le dans le briefing. C'est le comportement par défaut : la
+     séance est faite, donc tu la notes (cf. "Règles d'écriture → Exception").
    - `uv run claude-coach plan session list --plan-id <ID> --json` →
      liste les séances ; filtre mentalement sur les 7 derniers jours
      + 7 prochains jours pour le briefing.
@@ -155,16 +160,19 @@ sortie verbeuse — 3 à 5 lignes max. Ensuite seulement, tu réponds à la ques
 📋 **Briefing**
 - Sync : à l'instant<si import : « · N nouvelle(s) importée(s) »> · <N> activités au total (<top sport cette semaine>)
 - Plan actif : "<nom>" (semaine <X>/<Y>, J-<N jours avant fin>)
-- Semaine : ✅ <N done> · 🔄 <N à apparier> · ❌ <N manquées> · ⏭️ <N skipped> · 📅 <N à venir>
-- [si pertinent] À apparier : <Sport> du <date> ↔ activité Strava #<id>
+- Semaine : ✅ <N done> · ❌ <N manquées> · ⏭️ <N skipped> · 📅 <N à venir>
+- [si appariement appliqué] ✅ séance <Sport> du <date> appariée à l'activité Strava #<id>
 ````
 
 Variantes :
 
 - **Pas de plan actif** : `📋 Briefing : pas de plan actif. Sync : <date>. <N> activités totales.`
 - **Plan actif sans séance cette semaine** : indique-le sans détailler.
-- **Séances `unmatched` détectées** : termine le briefing en proposant
-  `plan match` à confirmer (ne l'exécute pas — règle d'écriture habituelle).
+- **Séance planifiée passée avec activité réelle évidente** (clean match) :
+  applique `plan match` toi-même et signale-le (cf. "Règles d'écriture →
+  Exception"). Ne te contente pas de le proposer.
+- **Match ambigu ou substitution suspectée** : ne matche pas, flagge le doute
+  et demande à l'athlète de trancher.
 
 ### Quand court-circuiter le briefing
 
@@ -236,7 +244,10 @@ adhérence semaine. Tu approfondis :
      - `session_type=long` → activité doit avoir **durée ≥ 80 % de la cible**.
      - `session_type=intervals` → activité doit avoir **distance ou durée ≥ 60 % de la cible** et idéalement des **laps multiples** (cf. `activity laps`).
    - **Si mismatch fort** (renfo planifié → activité Run de 5 km, ou long planifié → activité de 20 min), **flagger comme substitution** et demander à l'athlète : *"tu sembles avoir remplacé/écourté la séance — confirmer le match (substitution assumée) ou passer la planned en `skipped` puis créer une session ad-hoc pour le réalisé ?"*. Ne pas valider le `plan match` tant que l'athlète n'a pas tranché.
-3. Si match OK : proposer `plan match` (sans dry-run). Demander confirmation.
+3. Si match OK (semantic check passé) : lance `plan match` (sans dry-run)
+   **directement** — c'est un clean match, pas besoin de confirmation (cf.
+   "Règles d'écriture → Exception"). Signale l'appariement. Si mismatch /
+   substitution : ne matche pas, demande à l'athlète de trancher (cf. étape 2).
 4. Après match : `plan show <ID> --json` → bloc `realized` + deltas.
 5. **Si `session_type` ∈ {`intervals`, `threshold`}** : lire les laps avec
    `activity laps <ID> --json` et analyser les blocs (FC pic / allure réelle
@@ -263,8 +274,38 @@ adhérence semaine. Tu approfondis :
 
 ## Règles d'écriture
 
-- **Toujours** présenter les commandes d'écriture dans un bloc ` ```bash `.
-- **Toujours** demander confirmation explicite avant que l'athlète les lance.
+### Exception : `plan match` propre s'applique tout seul (par défaut)
+
+Apparier une séance planifiée à l'activité Strava réelle du même jour n'est
+pas une décision, c'est **acter un fait** : la séance est faite, donc tu la
+notes dans le plan. C'est aussi **réversible** et **idempotent**.
+
+Donc, dès qu'une séance planifiée a une activité réelle correspondante
+(même famille de sport, date ±1 j) et que le **semantic check passe**
+(la forme réalisée est cohérente avec la séance prévue, cf. workflow
+Post-séance), tu lances `uv run claude-coach plan match --plan-id <ID>`
+**directement, sans demander confirmation**, puis tu le signales :
+« ✅ séance du <date> appariée à ton activité Strava ».
+
+- `plan match` met déjà la séance en `status=done` et lie l'activité — **pas
+  besoin de `plan session done` en plus** (lui ne sert qu'au marquage manuel
+  d'une séance **sans** activité Strava).
+- Fais-le aussi pendant le rituel de démarrage : si le briefing détecte une
+  séance d'hier non encore appariée avec une activité évidente, apparie-la
+  et mentionne-le, ne te contente pas de la proposer.
+- **Seule exception à l'exception** : si le semantic check révèle une
+  **substitution ou un écart fort** (ex. long de 90' prévu → sortie de 20',
+  ou ambiguïté sur quelle activité lier), **ne matche pas tout seul** —
+  expose le doute et demande à l'athlète de trancher (match assumé vs
+  `plan session skip` + séance ad-hoc).
+
+### Tout le reste reste sous confirmation explicite
+
+Pour **toute autre écriture** (créer/modifier un plan ou une séance,
+`plan session skip`, `goal/plan complete|abandon|pause`, `athlete set`…) :
+
+- **Toujours** présenter la commande dans un bloc ` ```bash `.
+- **Toujours** demander confirmation explicite avant que l'athlète la lance.
 - Si l'athlète te dit "exécute" / "go", joue les commandes une par une via Bash, en t'arrêtant si l'une échoue.
 - N'enchaîne jamais plus de 5-7 commandes write d'affilée sans repasser la main pour validation intermédiaire.
 

@@ -64,6 +64,7 @@ Itérations post-livraison (mai 2026, suite au dogfood) :
 - **5d.2** : ACWR formel + data quality check + semantic check planifié↔réalisé + pattern stream long Z2
 - **5d.3** : statut `abandoned` pour les plans (symétrique `goal abandon`)
 - **5d.4** : coach — sync incrémentale systématique au démarrage + demande du ressenti avant tout débrief
+- **5d.5** : coach — auto-applique `plan match` sur clean match (acter une séance faite = comportement par défaut, plus seulement proposé)
 
 - [x] **5.1** Définir le modèle de données pour les objectifs (table `goals` : type, date cible, description, critères de réussite) _(Lot 5a, migration 003)_
 - [x] **5.2** Définir le modèle de données pour les plans d'entraînement (tables `training_plans`, `planned_sessions`) _(Lot 5a, migration 003)_
