@@ -62,6 +62,7 @@ claude-coach plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swi
 claude-coach plan session list --plan-id <ID> [--status ...]
 claude-coach plan session done <ID>
 claude-coach plan session skip <ID>
+claude-coach plan session delete <ID>   # supprime une séance non réalisée (report/replanif)
 
 # Lecture activités pour l'agent coach (lot 5c)
 claude-coach activity list  [--from <DATE>] [--to <DATE>] [--sport ...] [--family run|ride|swim|...] [--limit N]

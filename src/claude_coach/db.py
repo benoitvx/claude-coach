@@ -1082,6 +1082,26 @@ def list_planned_sessions(
     return [_row_to_planned_session(r) for r in rows]
 
 
+def delete_planned_session(conn: sqlite3.Connection, session_id: int) -> PlannedSession:
+    """Supprime une séance planifiée, uniquement si elle n'est pas encore réalisée.
+
+    Restreint au statut ``planned`` : on ne supprime jamais l'historique d'une
+    séance ``done``/``skipped``/``missed`` (déplacer une séance future ≠ effacer
+    un fait passé). Lève ValueError si la séance est introuvable ou déjà aboutie.
+    """
+    s = get_planned_session(conn, session_id)
+    if s is None:
+        raise ValueError(f"Aucune séance #{session_id}")
+    if s.status != "planned":
+        raise ValueError(
+            f"Séance #{session_id} en statut '{s.status}' : seules les séances "
+            "'planned' peuvent être supprimées (utilise 'skip' pour une séance aboutie)"
+        )
+    with conn:
+        conn.execute("DELETE FROM planned_sessions WHERE id = ?", (session_id,))
+    return s
+
+
 def update_planned_session_status(
     conn: sqlite3.Connection, session_id: int, status: str
 ) -> PlannedSession:

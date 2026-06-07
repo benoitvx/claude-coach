@@ -11,6 +11,7 @@ from claude_coach.db import (
     aggregate_activities,
     connect,
     count_activities,
+    delete_planned_session,
     finish_sync,
     get_athlete,
     get_goal,
@@ -521,6 +522,43 @@ def test_update_planned_session_status(db_conn: sqlite3.Connection) -> None:
 
     with pytest.raises(ValueError):
         update_planned_session_status(db_conn, s.id, "bogus")
+
+
+def test_delete_planned_session(db_conn: sqlite3.Connection) -> None:
+    p = insert_training_plan(
+        db_conn, name="P", start_date=date(2026, 1, 1), end_date=date(2026, 2, 1)
+    )
+    s = insert_planned_session(
+        db_conn,
+        training_plan_id=p.id,
+        planned_date=date(2026, 1, 5),
+        sport_type="Run",
+    )
+    deleted = delete_planned_session(db_conn, s.id)
+    assert deleted.id == s.id
+    assert get_planned_session(db_conn, s.id) is None
+
+
+def test_delete_planned_session_refuses_non_planned(db_conn: sqlite3.Connection) -> None:
+    p = insert_training_plan(
+        db_conn, name="P", start_date=date(2026, 1, 1), end_date=date(2026, 2, 1)
+    )
+    s = insert_planned_session(
+        db_conn,
+        training_plan_id=p.id,
+        planned_date=date(2026, 1, 5),
+        sport_type="Run",
+    )
+    update_planned_session_status(db_conn, s.id, "done")
+    with pytest.raises(ValueError, match="done"):
+        delete_planned_session(db_conn, s.id)
+    # Séance toujours présente : aucune suppression d'historique.
+    assert get_planned_session(db_conn, s.id) is not None
+
+
+def test_delete_planned_session_unknown_raises(db_conn: sqlite3.Connection) -> None:
+    with pytest.raises(ValueError, match="Aucune séance"):
+        delete_planned_session(db_conn, 9999)
 
 
 def test_planned_session_actual_activity_set_null_on_activity_delete(

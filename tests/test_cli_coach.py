@@ -339,6 +339,45 @@ def test_plan_session_skip_updates_status(monkeypatch: MonkeyPatch, tmp_path: Pa
     assert s.status == "skipped"
 
 
+def test_plan_session_delete_removes_planned(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(
+        main, ["plan", "add", "--name", "P", "--start", "2026-06-01", "--end", "2026-09-15"]
+    )
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-15", "--sport", "Run"],
+    )
+
+    result = runner.invoke(main, ["plan", "session", "delete", "1"])
+    assert result.exit_code == 0, result.output
+    assert "supprimée" in result.output
+
+    with connect(db_path) as conn:
+        migrate(conn)
+        assert get_planned_session(conn, 1) is None
+
+
+def test_plan_session_delete_refuses_done(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    runner.invoke(
+        main, ["plan", "add", "--name", "P", "--start", "2026-06-01", "--end", "2026-09-15"]
+    )
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-15", "--sport", "Run"],
+    )
+    runner.invoke(main, ["plan", "session", "done", "1"])
+
+    result = runner.invoke(main, ["plan", "session", "delete", "1"])
+    assert result.exit_code != 0
+    with connect(db_path) as conn:
+        migrate(conn)
+        assert get_planned_session(conn, 1) is not None
+
+
 def test_plan_session_done_updates_status(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     db_path = _setup_env(monkeypatch, tmp_path)
     runner = CliRunner()

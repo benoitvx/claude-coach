@@ -413,6 +413,8 @@ claude-coach plan match [--plan-id <ID>] [--dry-run]  # apparie séances ↔ act
 claude-coach plan session add --plan-id <ID> --date YYYY-MM-DD --sport <SPORT> [--session-type ...] [--duration <S>] [--distance <M>] [--intensity ...] [--description ...]
 claude-coach plan session list --plan-id <ID> [--status ...]
 claude-coach plan session done <ID>  # marquage manuel sans lien vers une activité Strava
+claude-coach plan session skip <ID>  # séance passée volontairement (substitution, repos)
+claude-coach plan session delete <ID>  # supprime une séance non réalisée (report/replanif), refus si statut ≠ planned
 ```
 
 Validation des enums : `click.Choice(...)` côté CLI seulement, pas de CHECK SQL

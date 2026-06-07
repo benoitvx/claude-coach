@@ -43,6 +43,7 @@ Convention JSON : snake_case, ISO 8601, `null` jamais omis (voir `specs.md` §11
 - `uv run claude-coach plan session add --plan-id N --date YYYY-MM-DD --sport <Run|Ride|Swim|TrailRun|VirtualRide|...> [--session-type endurance|threshold|intervals|long|race|recovery|renfo] [--duration <SECONDS>] [--distance <METERS>] [--intensity easy|moderate|threshold|vo2max|race] [--description "..."] [--notes "..."]`
 - `uv run claude-coach plan session done <ID>` — marquage manuel sans lien Strava.
 - `uv run claude-coach plan session skip <ID>` — séance passée volontairement (substitution / repos imprévu). **Utilise ça quand le semantic check Post-séance révèle un mismatch et que l'athlète confirme la substitution.**
+- `uv run claude-coach plan session delete <ID>` — supprime une séance **non encore réalisée** (statut `planned`). **Utilise ça pour un report/replanif** (décaler une séance d'un jour, replanifier un créneau) : ça ne pollue pas l'adhérence, contrairement à `skip`. Refusé sur une séance done/skipped/missed (historique protégé). Pas de `edit`/`move` : pour décaler, `delete` + `add` à la nouvelle date.
 - `uv run claude-coach plan match [--plan-id N] [--dry-run] [--json]` — apparie séances planifiées et activités Strava (par date ±1j et famille de sport).
 
 ## Contexte athlète

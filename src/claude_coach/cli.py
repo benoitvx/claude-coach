@@ -30,6 +30,7 @@ from claude_coach.db import (
     connect,
     count_activities,
     db_path_from_env,
+    delete_planned_session,
     get_activity,
     get_goal,
     get_last_sync,
@@ -920,6 +921,24 @@ def plan_session_skip(session_id: int) -> None:
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
     click.echo(f"OK — séance #{s.id} marquée '{s.status}'")
+
+
+@plan_session.command("delete")
+@click.argument("session_id", type=int)
+def plan_session_delete(session_id: int) -> None:
+    """Supprime une séance non encore réalisée (report, replanification).
+
+    Restreint aux séances en statut 'planned' : une séance aboutie
+    (done/skipped/missed) fait partie de l'historique et n'est pas supprimable.
+    """
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        try:
+            s = delete_planned_session(conn, session_id)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — séance #{s.id} ({s.sport_type} {s.planned_date.isoformat()}) supprimée")
 
 
 # --- Sous-commandes activity (Lot 5c) ---------------------------------------
