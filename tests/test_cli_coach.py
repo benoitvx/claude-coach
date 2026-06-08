@@ -717,7 +717,8 @@ def test_session_add_with_blocks_stores_and_serializes(
     assert [b["kind"] for b in blocks] == ["warmup", "intervals", "cooldown"]
 
 
-def test_session_add_blocks_on_non_bike_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_session_add_blocks_running_accepted(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    # Depuis le lot 9, les séances non-vélo acceptent des blocs running (push Nolio).
     _setup_env(monkeypatch, tmp_path)
     runner = CliRunner()
     _make_plan(runner)
@@ -735,11 +736,37 @@ def test_session_add_blocks_on_non_bike_errors(monkeypatch: MonkeyPatch, tmp_pat
             "--sport",
             "Run",
             "--blocks",
-            "40m@65",
+            "warmup:15min@h120-140; 6x[400m@p3:45;rest:90s]",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_session_add_blocks_running_invalid_dsl_errors(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+
+    result = runner.invoke(
+        main,
+        [
+            "plan",
+            "session",
+            "add",
+            "--plan-id",
+            "1",
+            "--date",
+            "2026-06-12",
+            "--sport",
+            "Run",
+            "--blocks",
+            "40min@z99",  # préfixe de cible inconnu
         ],
     )
     assert result.exit_code != 0
-    assert "vélo" in result.output
+    assert "Blocs invalides" in result.output
 
 
 def test_session_set_blocks_then_export(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
@@ -829,3 +856,51 @@ def test_export_unknown_session_errors(monkeypatch: MonkeyPatch, tmp_path: Path)
     result = CliRunner().invoke(main, ["plan", "session", "export", "999"])
     assert result.exit_code != 0
     assert "Aucune séance" in result.output
+
+
+def test_push_nolio_dry_run_emits_payload(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Run"],
+    )
+    runner.invoke(
+        main,
+        ["plan", "session", "set-blocks", "1", "warmup:15min@h120-140; 6x[400m@p3:45;rest:90s]"],
+    )
+
+    result = runner.invoke(main, ["plan", "session", "push-nolio", "1", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["sport_id"] == 2  # Run
+    assert payload["id_partner"] == 1
+    assert payload["date_start"] == "2026-09-01"
+    assert payload["structured_workout"][0]["intensity_type"] == "warmup"
+
+
+def test_push_nolio_on_bike_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Ride"],
+    )
+    result = runner.invoke(main, ["plan", "session", "push-nolio", "1", "--dry-run"])
+    assert result.exit_code != 0
+    assert "vélo" in result.output
+
+
+def test_push_nolio_without_blocks_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Run"],
+    )
+    result = runner.invoke(main, ["plan", "session", "push-nolio", "1", "--dry-run"])
+    assert result.exit_code != 0
+    assert "blocs structurés" in result.output

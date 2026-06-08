@@ -9,6 +9,7 @@ from typing import Literal, cast
 
 import click
 
+from claude_coach import nolio_auth
 from claude_coach.auth import (
     AuthError,
     ConfigError,
@@ -64,6 +65,13 @@ from claude_coach.db import (
     update_training_plan_status,
 )
 from claude_coach.models import Activity, PlannedSession, SessionDebrief
+from claude_coach.nolio import (
+    NolioClient,
+    NolioClientError,
+    build_planned_training_payload,
+    nolio_sport_id,
+    structured_workout_from_items,
+)
 from claude_coach.serializers import (
     activity_to_dict,
     athlete_metrics_to_dict,
@@ -77,6 +85,7 @@ from claude_coach.serializers import (
     training_plan_to_dict,
 )
 from claude_coach.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
+from claude_coach.workout import parse_workout, workout_from_json, workout_to_json
 from claude_coach.zwo import blocks_from_json, blocks_to_json, generate_zwo, is_bike, parse_blocks
 
 
@@ -105,6 +114,54 @@ def auth() -> None:
         raise click.ClickException(str(exc)) from exc
 
     click.echo(f"OK — tokens stockés dans {tokens_path} (athlete_id={tokens.athlete_id})")
+
+
+@main.group("nolio")
+def nolio_group() -> None:
+    """Intégration Nolio : push de séances structurées vers la montre (Suunto/Garmin)."""
+
+
+@nolio_group.command("auth")
+def nolio_auth_cmd() -> None:
+    """Lance le flow OAuth2 Nolio (à exécuter une fois)."""
+    try:
+        config = nolio_auth.load_nolio_config()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    tokens_path = nolio_auth.nolio_token_path_from_env()
+    try:
+        nolio_auth.start_oauth_flow(config, tokens_path)
+    except AuthError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — tokens Nolio stockés dans {tokens_path}")
+
+
+@nolio_group.command("status")
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def nolio_status(json_out: bool) -> None:
+    """Affiche l'état de la connexion Nolio (config + tokens)."""
+    tokens_path = nolio_auth.nolio_token_path_from_env()
+    try:
+        nolio_auth.load_nolio_config()
+        config_present = True
+    except ConfigError:
+        config_present = False
+    tokens = nolio_auth.load_tokens(tokens_path)
+    expires_at = tokens.expires_at.astimezone(UTC).isoformat() if tokens else None
+    if json_out:
+        _emit_json(
+            {
+                "config_present": config_present,
+                "authenticated": tokens is not None,
+                "token_expires_at": expires_at,
+            }
+        )
+        return
+    click.echo(f"Config Nolio : {'OK' if config_present else 'manquante'}")
+    if tokens:
+        click.echo(f"Authentifié  : oui (token expire {expires_at})")
+    else:
+        click.echo("Authentifié  : non — lance `claude-coach nolio auth`")
 
 
 @main.command()
@@ -839,15 +896,17 @@ def plan_session() -> None:
 
 
 def _blocks_json_or_raise(sport_type: str, blocks_dsl: str | None) -> str | None:
-    """Parse le DSL de blocs → JSON canonique. Exige un sport vélo. None si pas de DSL."""
+    """Parse le DSL de blocs → JSON canonique. None si pas de DSL.
+
+    Vélo → blocs puissance %FTP (`zwo.py`, export `.zwo` Zwift). Autres sports
+    (running…) → blocs multi-cibles allure/FC/durée/distance (`workout.py`, push Nolio).
+    """
     if blocks_dsl is None:
         return None
-    if not is_bike(sport_type):
-        raise click.ClickException(
-            f"Les blocs structurés (.zwo) ne s'appliquent qu'aux séances vélo, pas à '{sport_type}'"
-        )
     try:
-        return blocks_to_json(parse_blocks(blocks_dsl))
+        if is_bike(sport_type):
+            return blocks_to_json(parse_blocks(blocks_dsl))
+        return workout_to_json(parse_workout(blocks_dsl))
     except ValueError as exc:
         raise click.ClickException(f"Blocs invalides : {exc}") from exc
 
@@ -870,7 +929,10 @@ def _slugify(text: str) -> str:
 @click.option(
     "--blocks",
     default=None,
-    help="Blocs structurés vélo pour export .zwo (ex: 'warmup:10m:50-65; 3x[12m@95;4m@60]')",
+    help=(
+        "Blocs structurés. Vélo (.zwo Zwift) : 'warmup:10m:50-65; 3x[12m@95;4m@60]'. "
+        "Running (push Nolio) : 'warmup:15min@h120-140; 6x[400m@p3:45;rest:90s@h130]'."
+    ),
 )
 def plan_session_add(
     plan_id: int,
@@ -983,9 +1045,12 @@ def plan_session_delete(session_id: int) -> None:
 @click.argument("session_id", type=int)
 @click.argument("blocks")
 def plan_session_set_blocks(session_id: int, blocks: str) -> None:
-    """Définit (ou remplace) les blocs structurés vélo d'une séance, pour l'export .zwo.
+    """Définit (ou remplace) les blocs structurés d'une séance.
 
-    Exemple : claude-coach plan session set-blocks 12 "warmup:10m:50-65; 3x[12m@95;4m@60]"
+    Vélo (export .zwo Zwift) :
+        claude-coach plan session set-blocks 12 "warmup:10m:50-65; 3x[12m@95;4m@60]"
+    Running (push Nolio → Suunto) :
+        claude-coach plan session set-blocks 12 "warmup:15min@h120-140; 6x[400m@p3:45;rest:90s]"
     """
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
@@ -1044,6 +1109,83 @@ def plan_session_export(session_id: int, output: Path | None, to_stdout: bool) -
     click.echo(f"OK — .zwo écrit : {output}")
     if to_stdout:
         click.echo(xml)
+
+
+@plan_session.command("push-nolio")
+@click.argument("session_id", type=int)
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help="Affiche le payload Nolio sans l'envoyer (debug / fallback saisie manuelle)",
+)
+@click.option(
+    "--athlete-id",
+    "athlete_id",
+    type=int,
+    default=None,
+    help="Pousser vers un athlète (compte coach) ; défaut : le compte connecté",
+)
+def plan_session_push_nolio(session_id: int, dry_run: bool, athlete_id: int | None) -> None:
+    """Pousse une séance structurée vers Nolio (→ montre Suunto 9 / Garmin).
+
+    Réservé aux séances non-vélo (le vélo s'exporte en .zwo via `export`). La séance
+    apparaît « structurée » dans le calendrier Nolio et part automatiquement vers la montre.
+    """
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        s = get_planned_session(conn, session_id)
+        if s is None:
+            raise click.ClickException(f"Aucune séance #{session_id}")
+        if is_bike(s.sport_type):
+            raise click.ClickException(
+                f"Push Nolio non supporté pour le vélo ('{s.sport_type}') en v1 : utilise "
+                f"`claude-coach plan session export {session_id}` (Zwift .zwo)."
+            )
+        try:
+            sport_id = nolio_sport_id(s.sport_type)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if not s.blocks_json:
+            raise click.ClickException(
+                f"La séance #{session_id} n'a pas de blocs structurés. Ajoute-les via : "
+                f"claude-coach plan session set-blocks {session_id} "
+                f'"warmup:15min@h120-140; 6x[400m@p3:45;rest:90s@h130]; cooldown:10min@h120"'
+            )
+        plan = get_training_plan(conn, s.training_plan_id)
+        items = workout_from_json(s.blocks_json)
+
+    plan_name = plan.name if plan else "Plan"
+    structured = structured_workout_from_items(items)
+    payload = build_planned_training_payload(
+        s,
+        plan_name=plan_name,
+        sport_id=sport_id,
+        structured_workout=structured,
+        athlete_id=athlete_id,
+    )
+
+    if dry_run:
+        _emit_json(payload)
+        return
+
+    try:
+        config = nolio_auth.load_nolio_config()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    tokens_path = nolio_auth.nolio_token_path_from_env()
+    try:
+        with NolioClient(config, tokens_path) as client:
+            created = client.create_planned_training(payload)
+    except (AuthError, NolioClientError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    nolio_id = created.get("id") or created.get("id_training") or "?"
+    click.echo(
+        f"OK — séance #{s.id} poussée sur Nolio (id Nolio: {nolio_id}). "
+        "Elle sera synchronisée automatiquement vers ta montre."
+    )
 
 
 # --- Sous-commandes activity (Lot 5c) ---------------------------------------

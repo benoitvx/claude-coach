@@ -3,12 +3,13 @@
 > Ton coach sportif personnel, branché sur tes vraies données Strava, piloté par un subagent Claude Code. **100 % local. Tu gardes la data, tu gardes la décision.**
 
 ```
-Strava ─► sync ─► SQLite locale ─► CLI (--json) ─► subagent coach ─► plan + séances ─► .zwo ─► Zwift
-                                        │
-                              247 tests · mypy --strict · ruff
+Strava ─► sync ─► SQLite locale ─► CLI (--json) ─► subagent coach ─► plan + séances ─┬─ .zwo ─► Zwift
+                                        │                                            └─ Nolio ─► Suunto/Garmin
+                              313 tests · mypy --strict · ruff
 ```
 
-La boucle est fermée : tes données entrent par Strava, le coach raisonne, et la séance ressort vers ton home trainer.
+La boucle est fermée : tes données entrent par Strava, le coach raisonne, et la séance ressort
+vers ton home trainer (`.zwo` Zwift, vélo) ou ta montre (API Nolio → Suunto 9, course à pied).
 
 ## Pourquoi ?
 
@@ -24,7 +25,7 @@ Trois constats :
 2. **Surface CLI typée.** Toutes les lectures sortent en JSON stable (`snake_case`, ISO 8601, `null` jamais omis) : activités, laps, streams, agrégats hebdo/mensuels, métriques athlète historisées.
 3. **Subagent Claude Code.** Un agent `coach` vit dans `.claude/agents/coach.md`. Tu l'invoques depuis n'importe quelle session Claude Code dans le repo : *"demande au coach un état des lieux"*, *"…un plan vers mon trail d'octobre"*, *"…un débrief de ma séance"*. À chaque invocation il commence par un **rituel de démarrage** (sync incrémentale + briefing adhérence) — il ne raisonne jamais sur des données périmées.
 4. **Garde-fou.** Toute écriture qui relève d'une décision (créer un plan, prescrire des blocs, abandonner) est proposée en bloc `bash`, jamais auto-exécutée. Seul l'appariement d'une séance réalisée à son activité Strava — un simple fait — est acté automatiquement.
-5. **Sortie vers Zwift.** Le coach prescrit des séances vélo structurées (blocs de puissance % FTP) que tu exportes en `.zwo` (`plan session export`) et déposes dans Zwift. Plus besoin de re-saisir la séance à la main.
+5. **Sortie vers ta montre & Zwift.** Le coach prescrit des séances structurées : vélo en blocs de puissance % FTP → `.zwo` Zwift (`plan session export`) ; course à pied en allure/FC/durée/distance → poussées vers ta montre via l'API Nolio (`plan session push-nolio`), qui les synchronise en séances guidées sur ta Suunto 9 (le push API nécessite un **compte Nolio payant** — coach/premium). Plus besoin de re-saisir la séance à la main.
 
 ## Ce que le coach sait faire
 
@@ -36,6 +37,7 @@ Trois constats :
 - **Data quality check** : si tes FTP/VMA semblent obsolètes par rapport au volume réel, il suggère un test (Cooper 6', FTP 20 min).
 - **Semantic check** : si une séance renfo planifiée a été remplacée par un run, il le détecte avant le matching et te demande comment trancher.
 - **Export `.zwo` Zwift** : il prescrit les blocs de puissance, tu génères le fichier et tu l'exécutes sur ton home trainer (FTP-relatif — Zwift applique ta FTP).
+- **Push Nolio → Suunto** : pour la course, il prescrit les blocs (allure/FC/durée/distance) et les pousse dans Nolio via l'API (`plan session push-nolio`) ; Nolio les synchronise en séances guidées sur ta Suunto 9 (et Garmin).
 - **Ressenti d'abord** : avant un débrief, il demande tes sensations (RPE, jambes, douleurs, sommeil) et les croise avec la data — la FC seule ment sur la fatigue.
 
 ## Aperçu
@@ -97,6 +99,7 @@ demande au coach un état des lieux
 | **Plans** | `plan add/list/show/complete/pause/abandon`, `plan match` (planifié ↔ Strava, ±1j) |
 | **Séances** | `plan session add/list/done/skip/delete` |
 | **Export Zwift** | `plan session set-blocks <id> "<DSL>"`, `plan session export <id>` (→ `.zwo`) |
+| **Export Nolio** | `nolio auth/status`, `plan session push-nolio <id> [--dry-run]` (→ Suunto/Garmin) |
 
 Toutes les commandes de lecture acceptent `--json`. Conventions détaillées : [`specs.md §11`](specs.md).
 
@@ -109,12 +112,31 @@ uv run claude-coach plan session export 14        # → data/exports/<slug>.zwo 
 
 `warmup/cooldown:<durée>:<%début>-<%fin>` (rampe), `<durée>@<%>` (steady), `Nx[effort;récup]` (intervalles).
 
+Les séances de **course à pied** ont leur propre mini-DSL (cibles allure/FC, durée ou distance),
+poussé vers la montre via Nolio :
+
+```bash
+uv run claude-coach plan session set-blocks 14 "warmup:15min@h120-140; 6x[400m@p3:45;rest:90s]; cooldown:10min@h120"
+uv run claude-coach plan session push-nolio 14    # → API Nolio → Suunto 9 (séance guidée)
+```
+
+Durée `<n>min`/`<n>s`, distance `<n>km`/`<n>m` ; cible `p<min:sec>` (allure/km), `h<bpm>` (FC),
+plage possible (`p3:45-4:15`). Une fois Nolio connecté (`nolio auth`), le push est automatique
+jusqu'à la montre. Config : `NOLIO_CLIENT_ID`/`NOLIO_CLIENT_SECRET`/`NOLIO_REDIRECT_URI`.
+
+> ⚠️ **Compte Nolio payant requis pour le push.** L'écriture via l'API Nolio
+> (`create/planned/training/`) est réservée aux comptes **coach ou premium** : sans
+> abonnement, Nolio renvoie `403 "API access requires an active coach or premium
+> subscription"`. L'OAuth et la génération de la séance fonctionnent sans abonnement —
+> `push-nolio --dry-run` te donne alors le détail de la séance à recopier manuellement
+> dans l'éditeur Nolio web (qui synchronise ensuite vers la montre).
+
 ## Stack
 
 - **Python 3.12+**, **SQLite** (fichier local), **uv** (packaging + venv).
-- **click** (CLI), **httpx** (HTTP Strava avec rate limiter sur les headers `X-ReadRateLimit-Usage`).
-- **mypy --strict**, **ruff**, **pytest** (247 tests, dont integration tests avec faux serveur HTTP).
-- **Export `.zwo`** via la stdlib (`xml.etree`) — zéro dépendance ajoutée.
+- **click** (CLI), **httpx** (HTTP Strava + Nolio, OAuth2 et rate limiting).
+- **mypy --strict**, **ruff**, **pytest** (313 tests, dont integration tests avec faux serveur HTTP).
+- **Export `.zwo`** via la stdlib (`xml.etree`) ; **push Nolio** via l'API REST (`httpx`) — zéro dépendance ajoutée.
 - **Claude Code subagent** pour le coach — pas de service Python autonome, pas d'API à exposer.
 
 ## Développement

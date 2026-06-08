@@ -64,9 +64,14 @@ claude-coach plan session done <ID>
 claude-coach plan session skip <ID>
 claude-coach plan session delete <ID>   # supprime une séance non réalisée (report/replanif)
 
-# Export workouts (lot 6.2)
-claude-coach plan session set-blocks <ID> "<DSL>"        # blocs vélo structurés (.zwo)
-claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]   # génère le .zwo Zwift
+# Export workouts (lots 6.2 & 9)
+claude-coach plan session set-blocks <ID> "<DSL>"        # blocs structurés (vélo→.zwo / running→Nolio)
+claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]   # génère le .zwo Zwift (vélo)
+claude-coach plan session push-nolio <ID> [--dry-run] [--athlete-id N]  # pousse la séance running → Nolio → Suunto (lot 9)
+
+# Intégration Nolio (lot 9) — OAuth2 + push séances structurées vers la montre
+claude-coach nolio auth                 # flow OAuth2 Nolio (une fois)
+claude-coach nolio status [--json]      # état config + tokens Nolio
 
 # Lecture activités pour l'agent coach (lot 5c)
 claude-coach activity list  [--from <DATE>] [--to <DATE>] [--sport ...] [--family run|ride|swim|...] [--limit N]
@@ -130,7 +135,10 @@ claude-coach/
 │   ├── sync.py           # Logique de synchronisation
 │   ├── coach.py          # Matching planifié vs réalisé (lot 5b)
 │   ├── serializers.py    # Sérialisation modèle → dict pour `--json` (lot 5c)
-│   └── zwo.py            # Génération fichiers .zwo Zwift (lot 6.2)
+│   ├── zwo.py            # Génération fichiers .zwo Zwift, séances vélo (lot 6.2)
+│   ├── workout.py        # DSL séances running structurées → blocs canoniques (lot 9)
+│   ├── nolio_auth.py     # OAuth2 Nolio (tokens, refresh rotatif) (lot 9)
+│   └── nolio.py          # Client API Nolio + mapping structured_workout (lot 9)
 ├── tests/
 ├── data/                 # DB SQLite + tokens (gitignored)
 ├── references/

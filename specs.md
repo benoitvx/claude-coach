@@ -317,13 +317,53 @@ Découpage en sous-lots :
 - **5c** : commandes CLI orientées agent (queries riches, sortie JSON) ✅ (cf. §11)
 - **5d** : subagent + system prompt avec règles d'entraînement ✅ (`.claude/agents/coach.md`)
 
-### Export workouts (lot 6)
+### Export workouts (lots 6 & 9)
 
 Exporter les séances planifiées par l'agent vers :
-- **Suunto** : fichiers `.fit` ou via Suunto API _(lot 6.3 — à venir)_
-- **Zwift** : fichiers `.zwo` (format XML natif Zwift) _(lot 6.2 — livré)_
+- **Zwift** (vélo) : fichiers `.zwo` (XML natif Zwift, FTP-relatif) _(lot 6.2 — livré)_
+- **Suunto / Garmin** (course à pied surtout) : via l'**API Nolio** _(lot 9 — livré)_
 
 Permettre à l'utilisateur de suivre le programme directement sur sa montre ou dans Zwift.
+
+> **Pourquoi Nolio et pas un fichier `.fit` Suunto ?** Suunto n'accepte **aucun**
+> import de fichier de séance structurée directement sur la montre (FAQ + forum
+> Suunto). La seule voie pour une séance *guidée* est un sync cloud via un
+> partenaire. L'utilisateur passe déjà par **Nolio** (sync Nolio→Suunto 9
+> fonctionnelle). On pousse donc la séance par l'API Nolio plutôt que de générer
+> un FIT inutile. Le lot 6.3 (« fichiers `.fit` Suunto ») est de ce fait remplacé.
+
+#### Push Nolio (lot 9)
+
+Une séance non-vélo porte une structure de blocs running
+(`planned_sessions.blocks_json`), saisie via un mini-DSL multi-cibles.
+`claude-coach plan session push-nolio <id>` la convertit en `structured_workout`
+Nolio et la crée via `POST /api/create/planned/training/`. Nolio la marque
+« structurée » et la synchronise automatiquement vers la montre.
+
+- **Modules** : `workout.py` (DSL → blocs canoniques `Step`/`Repetition`),
+  `nolio.py` (mapping `structured_workout` + `NolioClient` httpx POST),
+  `nolio_auth.py` (OAuth2 Nolio). Zéro dépendance ajoutée.
+- **Mini-DSL running** (segments `;`, un step = `[warmup|cooldown|active|rest:]<durée>[@<cible>]`) :
+  - durée : `<int>min` / `<int>s` (temps) ou `<int>km` / `<int>m` (distance) —
+    `min` lève l'ambiguïté avec `m` (mètres).
+  - cible : `p<m:ss>` allure min/km (→ m/s, unité Nolio), `h<bpm>` FC, `w<W>`
+    puissance ; plage possible (`p3:45-4:15`, `h140-150`) ; absente → `no_target`.
+  - répétition : `Nx[step;step;...]`. Ex. complet :
+    `warmup:15min@h120-140; 6x[400m@p3:45;rest:90s]; cooldown:10min@h120`.
+  - Cibles **absolues** : le coach calcule bpm/allure depuis `athlete show`.
+- **OAuth2 Nolio** : `nolio auth` (flow callback localhost, port = celui du
+  `redirect_uri` enregistré). Auth client **Basic** sur `/api/token/`, réponse
+  `expires_in` (24 h), refresh **rotatif** (usage unique) persisté avant retour.
+  Tokens dans `data/nolio_tokens.json` (0o600), config `NOLIO_CLIENT_ID` /
+  `NOLIO_CLIENT_SECRET` / `NOLIO_REDIRECT_URI` (env ou `data/config.json`).
+- **Idempotence** : `id_partner` = id de la séance → un re-push ne duplique pas
+  (Nolio renvoie 400 si déjà créée).
+- `athlete_id` omis par défaut (push sur le compte connecté).
+- **Unités Nolio** : durée = s, distance = m, allure = m/s, FC = bpm, puissance = W.
+- **Scope v1** : sports non-vélo (le vélo garde `.zwo`→Zwift). `--dry-run` imprime
+  le payload JSON sans appel réseau (debug / fallback saisie manuelle).
+
+#### Export `.zwo` Zwift (lot 6.2)
 
 #### Export `.zwo` Zwift (lot 6.2)
 
@@ -411,17 +451,18 @@ Séances planifiées par l'agent (ou saisies manuellement).
 | actual_activity_id | INTEGER FK → activities(id) ON DELETE SET NULL | Rempli par le matching (lot 5b) |
 | status | TEXT NOT NULL | planned / done / skipped / missed (default 'planned') |
 | notes | TEXT | |
-| blocks_json | TEXT | Blocs structurés (puissance/durée) pour l'export `.zwo`, séances vélo — JSON canonique (migration 004, lot 6.2) |
+| blocks_json | TEXT | Blocs structurés — JSON canonique (migration 004). Vélo : blocs puissance %FTP pour `.zwo` (lot 6.2). Non-vélo : blocs running multi-cibles allure/FC/durée/distance pour le push Nolio (lot 9) |
 | created_at | TEXT NOT NULL | |
 | updated_at | TEXT NOT NULL | |
 
 Index : `idx_planned_sessions_plan_date(training_plan_id, planned_date)`,
 `idx_planned_sessions_actual_activity(actual_activity_id)`.
 
-`blocks_json` stocke une liste de blocs canoniques (`kind` ∈ warmup / steady /
-intervals / cooldown, puissance en fraction de FTP). Saisi via un mini-DSL
-(`--blocks`), il alimente `plan session export` → fichier `.zwo` Zwift. Voir
-« Export workouts » plus bas.
+`blocks_json` stocke une liste de blocs canoniques, **routée par sport** : vélo →
+blocs puissance %FTP (`zwo.py`, `kind` ∈ warmup/steady/intervals/cooldown) →
+`plan session export` → `.zwo` Zwift ; non-vélo → blocs running multi-cibles
+(`workout.py`, `Step`/`Repetition`) → `plan session push-nolio` → API Nolio →
+Suunto/Garmin. Saisi via `--blocks` / `set-blocks`. Voir « Export workouts » plus haut.
 
 ### Table `session_debriefs`
 
@@ -471,8 +512,13 @@ claude-coach plan session list --plan-id <ID> [--status ...]
 claude-coach plan session done <ID>  # marquage manuel sans lien vers une activité Strava
 claude-coach plan session skip <ID>  # séance passée volontairement (substitution, repos)
 claude-coach plan session delete <ID>  # supprime une séance non réalisée (report/replanif), refus si statut ≠ planned
-claude-coach plan session set-blocks <ID> "<DSL>"  # définit les blocs vélo structurés (lot 6.2)
+claude-coach plan session set-blocks <ID> "<DSL>"  # blocs structurés (vélo→.zwo / running→Nolio)
 claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]  # génère le .zwo Zwift (lot 6.2)
+claude-coach plan session push-nolio <ID> [--dry-run] [--athlete-id N]  # pousse la séance running vers Nolio → Suunto (lot 9)
+
+# Export Nolio (lot 9) — OAuth2 + push séances structurées vers la montre
+claude-coach nolio auth     # flow OAuth2 Nolio (une fois)
+claude-coach nolio status [--json]  # état config + tokens Nolio
 
 # Débriefs de séance (lot 7) — RPE / ressenti / douleurs
 claude-coach debrief add [--activity <ID>] [--session <ID>] [--date YYYY-MM-DD] [--rpe 1-10] [--feeling ...] [--pain ...]

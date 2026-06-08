@@ -80,9 +80,25 @@ Itérations post-livraison (mai 2026, suite au dogfood) :
 
 - [x] **6.1** Rechercher les formats acceptés par Suunto (API ou fichiers .fit) et Zwift (fichiers .zwo) _(zwift = .zwo XML FTP-relatif ; choix module `zwo.py` stdlib)_
 - [x] **6.2** Générer des fichiers `.zwo` (XML) pour les séances vélo Zwift _(module `zwo.py` + blocs structurés `blocks_json` migration 004 + mini-DSL)_
-- [ ] **6.3** Générer des fichiers `.fit` pour les séances Suunto
-- [~] **6.4** Commande CLI export _(branche zwift livrée via `plan session export` ; commande unifiée `export --target` à refondre quand 6.3/Suunto arrivera)_
-- [x] **6.5** Tests : génération de fichiers, validation des formats _(zwift — `tests/test_zwo.py` + tests CLI ; Suunto à venir avec 6.3)_
+- [~] **6.3** ~~Générer des fichiers `.fit` pour les séances Suunto~~ **REMPLACÉ par le Lot 9** : Suunto n'importe **aucun** fichier de séance (FAQ/forum Suunto) → le chemin réaliste est l'API Nolio (sync auto Nolio→Suunto). Pas de génération FIT.
+- [~] **6.4** Commande CLI export _(branche zwift livrée via `plan session export` ; le push Suunto passe par `plan session push-nolio`, lot 9 — pas de commande unifiée)_
+- [x] **6.5** Tests : génération de fichiers, validation des formats _(zwift — `tests/test_zwo.py` + tests CLI)_
+
+## Lot 9 — Export des séances structurées vers Nolio (→ Suunto 9)
+
+Suunto n'accepte aucun import de fichier de séance directement sur la montre. La
+voie réaliste (déjà fonctionnelle chez l'utilisateur) : **API Nolio** → la séance
+structurée est synchronisée automatiquement en SuuntoPlus Guide vers la Suunto 9
+(et Garmin). Pas de FIT, pas de nouvelle dépendance (`httpx` déjà présent).
+
+- [x] **9.1** Recherche schéma API Nolio (OAuth2 Basic auth, `create/planned/training/`, `structured_workout`, sport-map, unités pace=m/s) _(doc `github.com/NolioApp/NolioAPI-Documentation`)_
+- [x] **9.2** DSL running multi-cibles + blocs canoniques `Step`/`Repetition` _(module `workout.py` : allure/FC/durée/distance, notation `min`/`s`/`km`/`m`)_
+- [x] **9.3** OAuth2 Nolio _(module `nolio_auth.py` : Basic auth, `expires_in`, refresh rotatif, tokens `data/nolio_tokens.json` 0o600)_
+- [x] **9.4** Client API + mapping `structured_workout` + payload _(module `nolio.py` : `NolioClient` POST, sport-map, idempotence `id_partner`)_
+- [x] **9.5** CLI : groupe `nolio` (`auth`/`status`), `plan session push-nolio <ID> [--dry-run]`, routage blocs vélo/running
+- [x] **9.6** Tests : `test_workout.py`, `test_nolio.py`, `test_nolio_auth.py` + CLI dry-run
+- [x] **9.7** Docs : `specs.md`, `backlog.md`, `README.md`, `.claude/agents/coach.md`
+- [~] **9.8** Smoke test réel : OAuth `nolio auth` ✅, payload validé en dry-run ✅. **Push bloqué** : Nolio renvoie `403 "API access requires an active coach or premium subscription"` sur `create/planned/training/` → l'écriture API est réservée aux comptes coach/premium. Code OK (gestion 4xx ajoutée). **Reste** : abonnement Nolio premium/coach pour débloquer le push (puis confirmer l'unité d'allure m/s sur la montre), ou fallback saisie manuelle via `--dry-run`.
 
 ## Lot 7 — Débriefs de séance (ressenti / RPE / douleurs)
 

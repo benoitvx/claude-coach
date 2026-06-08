@@ -41,6 +41,26 @@ class Config:
 
 
 @dataclass(frozen=True)
+class NolioConfig:
+    """Config OAuth2 Nolio (lot 9). `redirect_uri` doit matcher l'enregistrement
+    de l'app côté Nolio — son port pilote le serveur de callback local."""
+
+    client_id: str
+    client_secret: str
+    redirect_uri: str
+
+
+@dataclass(frozen=True)
+class NolioTokens:
+    """Tokens OAuth2 Nolio. Pas d'`athlete_id` (le push vise le compte connecté).
+    `refresh_token` est rotatif (usage unique) → toujours persister le dernier."""
+
+    access_token: str
+    refresh_token: str
+    expires_at: datetime
+
+
+@dataclass(frozen=True)
 class SyncLog:
     id: int
     started_at: datetime
