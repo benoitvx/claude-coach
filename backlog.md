@@ -84,6 +84,19 @@ Itérations post-livraison (mai 2026, suite au dogfood) :
 - [~] **6.4** Commande CLI export _(branche zwift livrée via `plan session export` ; commande unifiée `export --target` à refondre quand 6.3/Suunto arrivera)_
 - [x] **6.5** Tests : génération de fichiers, validation des formats _(zwift — `tests/test_zwo.py` + tests CLI ; Suunto à venir avec 6.3)_
 
+## Lot 7 — Débriefs de séance (ressenti / RPE / douleurs)
+
+Persistance du ressenti subjectif d'une séance : le coach recueillait RPE /
+sensations / douleurs en conversation sans rien stocker. Brique clé du suivi
+surcharge (croisement `pain` récurrent ↔ ACWR).
+
+- [x] **7.1** Table `session_debriefs` (migration 005) : `debrief_date` requise, liens optionnels `activity_id` + `planned_session_id` (ON DELETE SET NULL), `rpe` (CHECK 1-10), `feeling`, `pain`
+- [x] **7.2** CRUD `db.py` (`insert/get/list/update/delete_debrief`) + sérialiseur `debrief_to_dict`
+- [x] **7.3** Groupe CLI `debrief` : `add` / `list` / `show` / `edit` / `delete` (+ `--json` sur list/show)
+- [x] **7.4** Intégration coach : `debrief add` auto (comme clean match), `debrief list` pour calibrer la charge, note Zwift/timezone
+- [x] **7.5** Tests : migration, CRUD, CHECK rpe, ON DELETE SET NULL, CLI bout-en-bout _(`tests/test_db_debrief.py`, `tests/test_cli_debrief.py`)_
+- [x] **7.6** Docs : `specs.md` §10 + CLI, `CLAUDE.md`, `.claude/agents/coach.md`
+
 ---
 
 ## Objectifs sportifs de référence

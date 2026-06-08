@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Literal, cast
 
@@ -32,8 +32,10 @@ from claude_coach.db import (
     connect,
     count_activities,
     db_path_from_env,
+    delete_debrief,
     delete_planned_session,
     get_activity,
+    get_debrief,
     get_goal,
     get_last_sync,
     get_latest_metrics,
@@ -41,10 +43,12 @@ from claude_coach.db import (
     get_planned_session,
     get_training_plan,
     insert_athlete_metrics,
+    insert_debrief,
     insert_goal,
     insert_planned_session,
     insert_training_plan,
     list_activities,
+    list_debriefs,
     list_goals,
     list_laps,
     list_planned_sessions,
@@ -53,16 +57,18 @@ from claude_coach.db import (
     metrics_values_equal,
     migrate,
     stats_by_sport,
+    update_debrief,
     update_goal_status,
     update_planned_session_blocks,
     update_planned_session_status,
     update_training_plan_status,
 )
-from claude_coach.models import Activity, PlannedSession
+from claude_coach.models import Activity, PlannedSession, SessionDebrief
 from claude_coach.serializers import (
     activity_to_dict,
     athlete_metrics_to_dict,
     bucket_to_dict,
+    debrief_to_dict,
     goal_to_dict,
     lap_to_dict,
     planned_session_to_dict,
@@ -1316,3 +1322,184 @@ def activity_stats(
             f"{b.moving_time_s // 60:>7} min  "
             f"{int(b.elevation_gain_m):>5} m"
         )
+
+
+# --- Sous-commandes debrief (Lot 7) -----------------------------------------
+
+
+def _debrief_line(d: SessionDebrief) -> str:
+    """Ligne résumé d'un débrief pour l'affichage `list`."""
+    link = f"act #{d.activity_id}" if d.activity_id else ""
+    if d.planned_session_id:
+        link = (link + " / " if link else "") + f"séance #{d.planned_session_id}"
+    rpe = f"RPE {d.rpe}" if d.rpe is not None else "RPE -"
+    pain = f"  ⚠ {d.pain}" if d.pain else ""
+    return f"#{d.id:<4} {d.debrief_date.isoformat()}  {rpe:<7}  {(link or '—'):<24}{pain}"
+
+
+@main.group()
+def debrief() -> None:
+    """Débriefs subjectifs de séance (RPE, ressenti, douleurs)."""
+
+
+@debrief.command("add")
+@click.option("--activity", "activity_id", type=int, default=None, help="ID activité Strava liée")
+@click.option("--session", "session_id", type=int, default=None, help="ID séance planifiée liée")
+@click.option(
+    "--date", "date_", type=DATE_TYPE, default=None, help="Date du débrief (défaut: aujourd'hui)"
+)
+@click.option("--rpe", type=click.IntRange(1, 10), default=None, help="Effort perçu 1-10")
+@click.option("--feeling", default=None, help="Ressenti général (texte libre)")
+@click.option("--pain", default=None, help="Signaux douleur (texte libre: mollet, genou, ...)")
+def debrief_add(
+    activity_id: int | None,
+    session_id: int | None,
+    date_: datetime | None,
+    rpe: int | None,
+    feeling: str | None,
+    pain: str | None,
+) -> None:
+    """Consigne le ressenti d'une séance (RPE, sensations, douleurs).
+
+    Au moins un de --rpe / --feeling / --pain est requis. Lier le débrief à une
+    activité (--activity) et/ou une séance planifiée (--session) est optionnel.
+    """
+    if rpe is None and feeling is None and pain is None:
+        raise click.ClickException("Un débrief doit contenir au moins --rpe, --feeling ou --pain.")
+    debrief_date = date_.date() if date_ is not None else date.today()
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        if activity_id is not None and get_activity(conn, activity_id) is None:
+            raise click.ClickException(f"Aucune activité #{activity_id}")
+        if session_id is not None and get_planned_session(conn, session_id) is None:
+            raise click.ClickException(f"Aucune séance #{session_id}")
+        d = insert_debrief(
+            conn,
+            debrief_date=debrief_date,
+            activity_id=activity_id,
+            planned_session_id=session_id,
+            rpe=rpe,
+            feeling=feeling,
+            pain=pain,
+        )
+    rpe_txt = f"RPE {d.rpe}" if d.rpe is not None else "sans RPE"
+    click.echo(f"OK — débrief #{d.id} consigné ({d.debrief_date.isoformat()}, {rpe_txt})")
+
+
+@debrief.command("list")
+@click.option("--from", "since", type=DATE_TYPE, default=None, help="Date min (YYYY-MM-DD)")
+@click.option("--to", "until", type=DATE_TYPE, default=None, help="Date max (YYYY-MM-DD)")
+@click.option("--activity", "activity_id", type=int, default=None, help="Filtrer sur une activité")
+@click.option("--session", "session_id", type=int, default=None, help="Filtrer sur une séance")
+@click.option("--limit", type=int, default=None, help="Limite de lignes")
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def debrief_list(
+    since: datetime | None,
+    until: datetime | None,
+    activity_id: int | None,
+    session_id: int | None,
+    limit: int | None,
+    json_out: bool,
+) -> None:
+    """Liste les débriefs (du plus récent au plus ancien)."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        debriefs = list_debriefs(
+            conn,
+            since=since.date() if since else None,
+            until=until.date() if until else None,
+            activity_id=activity_id,
+            planned_session_id=session_id,
+            limit=limit,
+        )
+    if json_out:
+        _emit_json([debrief_to_dict(d) for d in debriefs])
+        return
+    if not debriefs:
+        click.echo("Aucun débrief.")
+        return
+    for d in debriefs:
+        click.echo(_debrief_line(d))
+
+
+@debrief.command("show")
+@click.argument("debrief_id", type=int)
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def debrief_show(debrief_id: int, json_out: bool) -> None:
+    """Affiche le détail d'un débrief."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        d = get_debrief(conn, debrief_id)
+    if d is None:
+        raise click.ClickException(f"Aucun débrief #{debrief_id}")
+    if json_out:
+        _emit_json(debrief_to_dict(d))
+        return
+    click.echo(f"Débrief #{d.id} — {d.debrief_date.isoformat()}")
+    click.echo(f"  RPE         : {d.rpe if d.rpe is not None else '-'}/10")
+    click.echo(f"  activité    : {d.activity_id or '-'}")
+    click.echo(f"  séance      : {d.planned_session_id or '-'}")
+    click.echo(f"  ressenti    : {d.feeling or '-'}")
+    click.echo(f"  douleurs    : {d.pain or '-'}")
+    click.echo(f"  créé le     : {d.created_at.isoformat()}")
+
+
+@debrief.command("edit")
+@click.argument("debrief_id", type=int)
+@click.option("--activity", "activity_id", type=int, default=None)
+@click.option("--session", "session_id", type=int, default=None)
+@click.option("--date", "date_", type=DATE_TYPE, default=None)
+@click.option("--rpe", type=click.IntRange(1, 10), default=None)
+@click.option("--feeling", default=None)
+@click.option("--pain", default=None)
+def debrief_edit(
+    debrief_id: int,
+    activity_id: int | None,
+    session_id: int | None,
+    date_: datetime | None,
+    rpe: int | None,
+    feeling: str | None,
+    pain: str | None,
+) -> None:
+    """Modifie un débrief. Seuls les champs fournis sont changés.
+
+    Pour vider un champ (ex: retirer une note de douleur), supprime puis recrée.
+    """
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        if activity_id is not None and get_activity(conn, activity_id) is None:
+            raise click.ClickException(f"Aucune activité #{activity_id}")
+        if session_id is not None and get_planned_session(conn, session_id) is None:
+            raise click.ClickException(f"Aucune séance #{session_id}")
+        try:
+            d = update_debrief(
+                conn,
+                debrief_id,
+                debrief_date=date_.date() if date_ else None,
+                activity_id=activity_id,
+                planned_session_id=session_id,
+                rpe=rpe,
+                feeling=feeling,
+                pain=pain,
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — débrief #{d.id} mis à jour")
+
+
+@debrief.command("delete")
+@click.argument("debrief_id", type=int)
+def debrief_delete(debrief_id: int) -> None:
+    """Supprime un débrief."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        try:
+            d = delete_debrief(conn, debrief_id)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+    click.echo(f"OK — débrief #{d.id} ({d.debrief_date.isoformat()}) supprimé")

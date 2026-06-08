@@ -74,12 +74,19 @@ claude-coach activity show  <ID>
 claude-coach activity laps  <ID>   # laps segmentés montre — pour débrief d'intervalles (lot 5c.4)
 claude-coach activity streams <ID> [--type heartrate|watts|...]  # streams seconde-par-seconde — pour analyser un long Z2 (lot 5c.5)
 claude-coach activity stats [--from <DATE>] [--to <DATE>] [--sport ...] [--family ...] [--by sport|week|month]
+
+# Débriefs de séance — ressenti / RPE / douleurs (lot 7)
+claude-coach debrief add [--activity <ID>] [--session <ID>] [--date <DATE>] [--rpe 1-10] [--feeling <TXT>] [--pain <TXT>]
+claude-coach debrief list [--from <DATE>] [--to <DATE>] [--activity <ID>] [--session <ID>] [--limit N]
+claude-coach debrief show <ID>
+claude-coach debrief edit <ID> [opts]   # seuls les champs fournis sont modifiés
+claude-coach debrief delete <ID>
 ```
 
 Toutes les commandes de lecture (`status`, `goal list/show`, `plan list/show/match`,
-`plan session list`, `athlete show/history`, `activity list/show/stats`)
-acceptent `--json` : sortie stable parseable (snake_case, ISO 8601, `null`
-jamais omis). Conventions détaillées dans `specs.md` §11.
+`plan session list`, `athlete show/history`, `activity list/show/stats`,
+`debrief list/show`) acceptent `--json` : sortie stable parseable (snake_case,
+ISO 8601, `null` jamais omis). Conventions détaillées dans `specs.md` §11.
 
 ## Subagent coach (lot 5d)
 
@@ -101,8 +108,13 @@ les specs) mais **propose** toujours les commandes d'écriture dans un bloc
 ` ```bash ` et **demande confirmation** avant exécution — *sauf* l'appariement
 `plan match` d'une séance réalisée (clean match, même jour/famille, semantic
 check OK) qu'il applique tout seul puis signale, car c'est acter un fait
-réversible, pas une décision. Le système prompt encode : polarisé 80/20,
-charge progressive, périodisation par bloc, spécificité par discipline,
+réversible, pas une décision. **De même, le coach consigne lui-même le débrief
+d'une séance** (`debrief add`) à partir du ressenti que l'utilisateur lui donne
+en conversation (RPE, sensations, douleurs), puis le signale — acter un fait
+réversible énoncé par l'utilisateur, même logique que le clean match. Il lit
+l'historique des débriefs (`debrief list --json`) pour calibrer la charge et
+détecter la surcharge (signaux douleur récurrents). Le système prompt encode :
+polarisé 80/20, charge progressive, périodisation par bloc, spécificité par discipline,
 calibration sur `athlete show --json`.
 
 ## Architecture

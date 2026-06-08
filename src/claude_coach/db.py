@@ -15,6 +15,7 @@ from claude_coach.models import (
     Goal,
     Lap,
     PlannedSession,
+    SessionDebrief,
     Stream,
     SyncLog,
     TrainingPlan,
@@ -239,11 +240,36 @@ def _migration_004_session_blocks(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE planned_sessions ADD COLUMN blocks_json TEXT")
 
 
+def _migration_005_session_debriefs(conn: sqlite3.Connection) -> None:
+    """Débriefs subjectifs d'une séance : RPE, ressenti, douleurs (Lot 7).
+
+    Liens optionnels (ON DELETE SET NULL) vers une activité ET/OU une séance
+    planifiée : on garde le débrief même si l'activité/séance liée disparaît.
+    `debrief_date` est la seule donnée requise."""
+    conn.executescript("""
+        CREATE TABLE session_debriefs (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            debrief_date       TEXT NOT NULL,
+            activity_id        INTEGER REFERENCES activities(id) ON DELETE SET NULL,
+            planned_session_id INTEGER REFERENCES planned_sessions(id) ON DELETE SET NULL,
+            rpe                INTEGER CHECK (rpe IS NULL OR rpe BETWEEN 1 AND 10),
+            feeling            TEXT,
+            pain               TEXT,
+            created_at         TEXT NOT NULL,
+            updated_at         TEXT NOT NULL
+        );
+        CREATE INDEX idx_session_debriefs_date ON session_debriefs(debrief_date);
+        CREATE INDEX idx_session_debriefs_activity ON session_debriefs(activity_id);
+        CREATE INDEX idx_session_debriefs_session ON session_debriefs(planned_session_id);
+    """)
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _migration_001_initial_schema,
     _migration_002_athlete_metrics,
     _migration_003_goals_training_plans,
     _migration_004_session_blocks,
+    _migration_005_session_debriefs,
 ]
 
 
@@ -1141,3 +1167,154 @@ def update_planned_session_status(
     updated = get_planned_session(conn, session_id)
     assert updated is not None
     return updated
+
+
+# --- Lot 7 : débriefs de séance --------------------------------------------
+
+_DEBRIEF_COLS = (
+    "id, debrief_date, activity_id, planned_session_id, rpe, feeling, pain, created_at, updated_at"
+)
+
+
+def _row_to_debrief(row: sqlite3.Row) -> SessionDebrief:
+    return SessionDebrief(
+        id=row["id"],
+        debrief_date=date.fromisoformat(row["debrief_date"]),
+        activity_id=row["activity_id"],
+        planned_session_id=row["planned_session_id"],
+        rpe=row["rpe"],
+        feeling=row["feeling"],
+        pain=row["pain"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        updated_at=datetime.fromisoformat(row["updated_at"]),
+    )
+
+
+def _validate_rpe(rpe: int | None) -> None:
+    if rpe is not None and not (1 <= rpe <= 10):
+        raise ValueError(f"RPE invalide '{rpe}', attendu un entier entre 1 et 10")
+
+
+def insert_debrief(
+    conn: sqlite3.Connection,
+    *,
+    debrief_date: date,
+    activity_id: int | None = None,
+    planned_session_id: int | None = None,
+    rpe: int | None = None,
+    feeling: str | None = None,
+    pain: str | None = None,
+) -> SessionDebrief:
+    _validate_rpe(rpe)
+    now = _now_iso()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO session_debriefs (debrief_date, activity_id, "
+            "planned_session_id, rpe, feeling, pain, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                debrief_date.isoformat(),
+                activity_id,
+                planned_session_id,
+                rpe,
+                feeling,
+                pain,
+                now,
+                now,
+            ),
+        )
+    row = conn.execute(
+        f"SELECT {_DEBRIEF_COLS} FROM session_debriefs WHERE id = ?", (cur.lastrowid,)
+    ).fetchone()
+    return _row_to_debrief(row)
+
+
+def get_debrief(conn: sqlite3.Connection, debrief_id: int) -> SessionDebrief | None:
+    row = conn.execute(
+        f"SELECT {_DEBRIEF_COLS} FROM session_debriefs WHERE id = ?", (debrief_id,)
+    ).fetchone()
+    return _row_to_debrief(row) if row else None
+
+
+def list_debriefs(
+    conn: sqlite3.Connection,
+    *,
+    since: date | None = None,
+    until: date | None = None,
+    activity_id: int | None = None,
+    planned_session_id: int | None = None,
+    limit: int | None = None,
+) -> list[SessionDebrief]:
+    """Liste les débriefs, du plus récent au plus ancien. Bornes inclusives sur debrief_date."""
+    clauses: list[str] = []
+    params: list[object] = []
+    if since is not None:
+        clauses.append("debrief_date >= ?")
+        params.append(since.isoformat())
+    if until is not None:
+        clauses.append("debrief_date <= ?")
+        params.append(until.isoformat())
+    if activity_id is not None:
+        clauses.append("activity_id = ?")
+        params.append(activity_id)
+    if planned_session_id is not None:
+        clauses.append("planned_session_id = ?")
+        params.append(planned_session_id)
+    sql = f"SELECT {_DEBRIEF_COLS} FROM session_debriefs"
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY debrief_date DESC, id DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+    rows = conn.execute(sql, tuple(params)).fetchall()
+    return [_row_to_debrief(r) for r in rows]
+
+
+def update_debrief(
+    conn: sqlite3.Connection,
+    debrief_id: int,
+    *,
+    debrief_date: date | None = None,
+    activity_id: int | None = None,
+    planned_session_id: int | None = None,
+    rpe: int | None = None,
+    feeling: str | None = None,
+    pain: str | None = None,
+) -> SessionDebrief:
+    """Met à jour un débrief. Seuls les champs fournis (non-None) sont modifiés ;
+    pour vider un champ, supprimer et recréer le débrief."""
+    _validate_rpe(rpe)
+    existing = get_debrief(conn, debrief_id)
+    if existing is None:
+        raise ValueError(f"Aucun débrief #{debrief_id}")
+    with conn:
+        conn.execute(
+            "UPDATE session_debriefs SET debrief_date = ?, activity_id = ?, "
+            "planned_session_id = ?, rpe = ?, feeling = ?, pain = ?, updated_at = ? "
+            "WHERE id = ?",
+            (
+                (debrief_date or existing.debrief_date).isoformat(),
+                activity_id if activity_id is not None else existing.activity_id,
+                planned_session_id
+                if planned_session_id is not None
+                else existing.planned_session_id,
+                rpe if rpe is not None else existing.rpe,
+                feeling if feeling is not None else existing.feeling,
+                pain if pain is not None else existing.pain,
+                _now_iso(),
+                debrief_id,
+            ),
+        )
+    updated = get_debrief(conn, debrief_id)
+    assert updated is not None
+    return updated
+
+
+def delete_debrief(conn: sqlite3.Connection, debrief_id: int) -> SessionDebrief:
+    d = get_debrief(conn, debrief_id)
+    if d is None:
+        raise ValueError(f"Aucun débrief #{debrief_id}")
+    with conn:
+        conn.execute("DELETE FROM session_debriefs WHERE id = ?", (debrief_id,))
+    return d

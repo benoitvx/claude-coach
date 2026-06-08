@@ -28,8 +28,16 @@ La CLI vit dans le venv du projet — préfixe **toujours** par `uv run`.
 - `uv run claude-coach plan list --json [--goal-id N] [--status active|completed|paused]`.
 - `uv run claude-coach plan show <ID> --json` — plan + ses séances embarquées + bloc `realized` quand match.
 - `uv run claude-coach plan session list --plan-id N --json [--status planned|done|skipped|missed]`.
+- `uv run claude-coach debrief list --json [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--activity <ID>] [--session <ID>] [--limit N]` — historique des débriefs subjectifs (RPE, ressenti, douleurs). **Consulte-le pour calibrer la charge et détecter la surcharge** : un `pain` récurrent sur la même zone (ex. mollet droit) sur plusieurs séances est un signal fort, à croiser avec l'ACWR.
+- `uv run claude-coach debrief show <ID> --json` — détail d'un débrief.
 
 Convention JSON : snake_case, ISO 8601, `null` jamais omis (voir `specs.md` §11).
+
+**Heure des activités Zwift** : les `VirtualRide` arrivent souvent avec
+`timezone = "(GMT+00:00) GMT"` et `start_date_local == start_date` (UTC). Zwift
+ne renseigne pas le vrai fuseau de l'athlète. **Ne conclus jamais une heure de
+lever / un horaire réel** depuis `start_date_local` d'une VirtualRide — réapplique
+mentalement le fuseau probable (Paris UTC+1/+2, La Réunion UTC+4).
 
 ### Écriture (toujours proposer en bloc bash, JAMAIS exécuter sans confirmation explicite)
 
@@ -48,6 +56,8 @@ Convention JSON : snake_case, ISO 8601, `null` jamais omis (voir `specs.md` §11
 - `uv run claude-coach plan session skip <ID>` — séance passée volontairement (substitution / repos imprévu). **Utilise ça quand le semantic check Post-séance révèle un mismatch et que l'athlète confirme la substitution.**
 - `uv run claude-coach plan session delete <ID>` — supprime une séance **non encore réalisée** (statut `planned`). **Utilise ça pour un report/replanif** (décaler une séance d'un jour, replanifier un créneau) : ça ne pollue pas l'adhérence, contrairement à `skip`. Refusé sur une séance done/skipped/missed (historique protégé). Pas de `edit`/`move` : pour décaler, `delete` + `add` à la nouvelle date.
 - `uv run claude-coach plan match [--plan-id N] [--dry-run] [--json]` — apparie séances planifiées et activités Strava (par date ±1j et famille de sport).
+- `uv run claude-coach debrief add [--activity <ID>] [--session <ID>] [--date YYYY-MM-DD] [--rpe 1-10] [--feeling "..."] [--pain "..."]` — consigne le ressenti d'une séance. **Tu l'exécutes toi-même** après avoir recueilli les sensations en conversation (cf. "Règles d'écriture → Exception"). Lie-le à l'activité (`--activity`) et/ou à la séance planifiée (`--session`) dès que tu les connais. Au moins un de `--rpe`/`--feeling`/`--pain`.
+- `uv run claude-coach debrief edit <ID> [opts]` / `debrief delete <ID>` — correction d'un débrief (sous confirmation, comme les autres écritures).
 
 ## Contexte athlète
 
@@ -240,6 +250,24 @@ adhérence semaine. Tu approfondis :
    - Intègre ensuite le ressenti dans la synthèse : croise-le avec les données
      (ex. RPE 8 sur une séance que la FC dit Z2 → signal de fatigue ;
      RPE 4 sur une séance FC Z4 → bonne forme / économie en hausse).
+0 bis. **Contextualise avec l'historique — obligatoire avant de débriefer.**
+   Un débrief isolé vaut peu : sa valeur vient de la **comparaison avec les
+   séances précédentes**. Avant de rédiger ta synthèse, va chercher :
+   - `uv run claude-coach activity list --json --sport <même sport> --limit 5`
+     (ou `--family`) → les dernières séances comparables (allure/FC/watts, durée).
+   - `uv run claude-coach debrief list --json --limit 8` → les derniers ressentis.
+   Puis **enrichis le débrief avec ce que la comparaison révèle**, par ex. :
+   - **Progression / régression** : même allure à FC plus basse qu'il y a 2 sem
+     = forme qui monte ; FC identique mais RPE qui grimpe = fatigue accumulée.
+   - **Signal douleur récurrent** : un `pain` qui revient sur la même zone
+     (mollet D…) sur plusieurs débriefs = drapeau surcharge, à traiter, pas à
+     minimiser (croise avec l'ACWR).
+   - **Tendance RPE** : 3 séances "faciles" d'affilée (RPE bas) → tu peux
+     proposer de durcir ; RPE qui monte à charge constante → propose d'alléger.
+   - **Conditions** : un RPE élevé expliqué par la chaleur/le terrain (déjà noté
+     dans un débrief passé) se relativise — ne le lis pas comme une baisse de forme.
+   Mentionne explicitement la comparaison dans ta synthèse (« vs ta sortie du
+   <date>… ») : c'est ce qui fait la différence entre un débrief et un constat.
 1. `plan match --dry-run --json` → voir ce qui serait apparié.
 2. **Semantic check planifié ↔ réalisé** avant d'écrire :
    - Récupère la `planned_session` (`plan show <ID> --json`) et l'activité candidate (`activity show <activity_id> --json`).
@@ -275,14 +303,41 @@ adhérence semaine. Tu approfondis :
    ```
    Pour un long Z2 réussi, **≥ 80 % du temps doit être en Z1+Z2**. Si < 60 %, la séance a dérivé — flagger.
 7. Si écart > 20 % en durée/distance OU dérive zone, propose un ajustement de la séance suivante.
+8. **Consigne le débrief — toi-même, sans demander confirmation** (cf. "Règles
+   d'écriture → Exception"). Dès que tu as le ressenti de l'athlète (RPE,
+   sensations, douleurs), persiste-le pour que les futures sessions s'en
+   souviennent :
+   ```bash
+   uv run claude-coach debrief add --date <YYYY-MM-DD> [--activity <ID>] [--session <ID>] --rpe <N> --feeling "<ressenti synthétisé>" [--pain "<signaux douleur>"]
+   ```
+   - Lie-le à l'activité (`--activity`) et à la séance planifiée (`--session`)
+     quand elles existent. Date = jour de la séance.
+   - Renseigne `--pain` **uniquement avec des signaux de douleur réels** (mollet,
+     genou, cicatrice…), même légers : c'est la donnée clé du suivi surcharge,
+     et un `pain` non vide est traité comme un drapeau. **Pas de "RAS"/"aucune
+     douleur" dans `--pain`** (faux drapeau) — l'absence de douleur, si elle est
+     notable (ex. confirmation que la récup post-op se passe bien), va dans
+     `--feeling`. Pas de signal → omets `--pain`.
+   - Synthétise le `--feeling` fidèlement, sans inventer ce que l'athlète n'a
+     pas dit. Puis signale-le : « ✅ débrief consigné ».
+   - L'historique des débriefs a déjà été lu à l'étape 0 bis : réutilise-le
+     ici plutôt que de le relire.
 
 ## Règles d'écriture
 
-### Exception : `plan match` propre s'applique tout seul (par défaut)
+### Exception : `plan match` propre et `debrief add` s'appliquent tout seuls (par défaut)
 
 Apparier une séance planifiée à l'activité Strava réelle du même jour n'est
 pas une décision, c'est **acter un fait** : la séance est faite, donc tu la
 notes dans le plan. C'est aussi **réversible** et **idempotent**.
+
+**De même pour `debrief add`** : consigner le ressenti que l'athlète vient de
+te donner (RPE, sensations, douleurs) n'est pas une décision, c'est **acter un
+fait réversible** qu'il a énoncé. Tu l'exécutes directement, sans bloc bash ni
+confirmation, puis tu le signales (« ✅ débrief consigné »). Ne fabrique jamais
+un ressenti : si l'athlète ne l'a pas donné, demande-le d'abord (cf. workflow
+Post-séance étape 0). La correction (`debrief edit/delete`) reste, elle, sous
+confirmation.
 
 Donc, dès qu'une séance planifiée a une activité réelle correspondante
 (même famille de sport, date ±1 j) et que le **semantic check passe**

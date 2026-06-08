@@ -423,6 +423,33 @@ intervals / cooldown, puissance en fraction de FTP). Saisi via un mini-DSL
 (`--blocks`), il alimente `plan session export` → fichier `.zwo` Zwift. Voir
 « Export workouts » plus bas.
 
+### Table `session_debriefs`
+
+Ressenti subjectif d'une séance, saisi par l'athlète (en pratique consigné par
+l'agent coach à partir de l'échange conversationnel — RPE, sensations,
+douleurs). Migration 005 (lot 7).
+
+| Colonne | Type | Description |
+|---------|------|-------------|
+| id | INTEGER PK | |
+| debrief_date | TEXT NOT NULL | ISO date — seule donnée requise |
+| activity_id | INTEGER FK → activities(id) ON DELETE SET NULL | lien optionnel vers l'activité Strava |
+| planned_session_id | INTEGER FK → planned_sessions(id) ON DELETE SET NULL | lien optionnel vers la séance planifiée |
+| rpe | INTEGER CHECK (rpe IS NULL OR 1..10) | effort perçu 1-10 |
+| feeling | TEXT | ressenti général |
+| pain | TEXT | signaux douleur (mollet, genou, ...) |
+| created_at | TEXT NOT NULL | |
+| updated_at | TEXT NOT NULL | |
+
+Index : `idx_session_debriefs_date(debrief_date)`,
+`idx_session_debriefs_activity(activity_id)`,
+`idx_session_debriefs_session(planned_session_id)`.
+
+Les deux liens sont optionnels et indépendants (`ON DELETE SET NULL`) : un
+débrief couvre aussi bien une séance planifiée+réalisée qu'une activité non
+planifiée (natation bonus) ou un ressenti sans activité Strava. On conserve le
+débrief même si l'activité/séance liée disparaît.
+
 ### Commandes CLI (lots 5a + 5b)
 
 ```bash
@@ -446,6 +473,13 @@ claude-coach plan session skip <ID>  # séance passée volontairement (substitut
 claude-coach plan session delete <ID>  # supprime une séance non réalisée (report/replanif), refus si statut ≠ planned
 claude-coach plan session set-blocks <ID> "<DSL>"  # définit les blocs vélo structurés (lot 6.2)
 claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]  # génère le .zwo Zwift (lot 6.2)
+
+# Débriefs de séance (lot 7) — RPE / ressenti / douleurs
+claude-coach debrief add [--activity <ID>] [--session <ID>] [--date YYYY-MM-DD] [--rpe 1-10] [--feeling ...] [--pain ...]
+claude-coach debrief list [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--activity <ID>] [--session <ID>] [--limit N] [--json]
+claude-coach debrief show <ID> [--json]
+claude-coach debrief edit <ID> [--rpe ...] [--feeling ...] [--pain ...] [--activity <ID>] [--session <ID>] [--date ...]
+claude-coach debrief delete <ID>
 ```
 
 Validation des enums : `click.Choice(...)` côté CLI seulement, pas de CHECK SQL

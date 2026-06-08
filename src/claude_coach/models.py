@@ -188,3 +188,26 @@ class PlannedSession:
     actual_activity_id: int | None = None
     notes: str | None = None
     blocks_json: str | None = None
+
+
+# --- Lot 7 : débriefs de séance (ressenti / RPE / douleurs) -----------------
+
+
+@dataclass(frozen=True)
+class SessionDebrief:
+    """Ressenti subjectif d'une séance, saisi par l'athlète (via le coach).
+
+    Liens optionnels vers une activité Strava ET/OU une séance planifiée :
+    couvre la séance planifiée+réalisée, l'activité non planifiée (natation
+    bonus) et le ressenti sans activité. `debrief_date` est la seule donnée
+    obligatoire."""
+
+    id: int
+    debrief_date: date
+    created_at: datetime
+    updated_at: datetime
+    activity_id: int | None = None
+    planned_session_id: int | None = None
+    rpe: int | None = None  # effort perçu 1-10
+    feeling: str | None = None  # ressenti général
+    pain: str | None = None  # signaux douleur (mollet, genou, ...)
