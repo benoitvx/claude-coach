@@ -3,10 +3,12 @@
 > Ton coach sportif personnel, branché sur tes vraies données Strava, piloté par un subagent Claude Code. **100 % local. Tu gardes la data, tu gardes la décision.**
 
 ```
-Strava API ─► sync ─► SQLite locale ─► CLI (--json) ─► subagent coach ─► toi
-                                                  ▲
-                                                  └── 212 tests, mypy --strict, ruff
+Strava ─► sync ─► SQLite locale ─► CLI (--json) ─► subagent coach ─► plan + séances ─► .zwo ─► Zwift
+                                        │
+                              247 tests · mypy --strict · ruff
 ```
+
+La boucle est fermée : tes données entrent par Strava, le coach raisonne, et la séance ressort vers ton home trainer.
 
 ## Pourquoi ?
 
@@ -20,8 +22,9 @@ Trois constats :
 
 1. **Import.** `claude-coach sync --full` télécharge ton historique Strava (activités, laps, streams seconde-par-seconde) dans une base SQLite locale. Tâche `launchd` quotidienne pour les nouvelles séances.
 2. **Surface CLI typée.** Toutes les lectures sortent en JSON stable (`snake_case`, ISO 8601, `null` jamais omis) : activités, laps, streams, agrégats hebdo/mensuels, métriques athlète historisées.
-3. **Subagent Claude Code.** Un agent `coach` vit dans `.claude/agents/coach.md`. Tu l'invoques depuis n'importe quelle session Claude Code dans le repo : *"demande au coach un état des lieux"*, *"…un plan vers mon trail d'octobre"*, *"…un débrief de ma séance"*. Il lit la DB via Bash + CLI, raisonne, te répond.
-4. **Garde-fou.** Toute écriture (créer un plan, marquer une séance, etc.) est proposée en bloc `bash`, jamais auto-exécutée. Tu valides, tu joues.
+3. **Subagent Claude Code.** Un agent `coach` vit dans `.claude/agents/coach.md`. Tu l'invoques depuis n'importe quelle session Claude Code dans le repo : *"demande au coach un état des lieux"*, *"…un plan vers mon trail d'octobre"*, *"…un débrief de ma séance"*. À chaque invocation il commence par un **rituel de démarrage** (sync incrémentale + briefing adhérence) — il ne raisonne jamais sur des données périmées.
+4. **Garde-fou.** Toute écriture qui relève d'une décision (créer un plan, prescrire des blocs, abandonner) est proposée en bloc `bash`, jamais auto-exécutée. Seul l'appariement d'une séance réalisée à son activité Strava — un simple fait — est acté automatiquement.
+5. **Sortie vers Zwift.** Le coach prescrit des séances vélo structurées (blocs de puissance % FTP) que tu exportes en `.zwo` (`plan session export`) et déposes dans Zwift. Plus besoin de re-saisir la séance à la main.
 
 ## Ce que le coach sait faire
 
@@ -32,6 +35,8 @@ Trois constats :
 - **Spécificité par discipline** : run, ride/Zwift, swim, trail, swim&run, triathlon — chacune avec ses séances types et calibrations.
 - **Data quality check** : si tes FTP/VMA semblent obsolètes par rapport au volume réel, il suggère un test (Cooper 6', FTP 20 min).
 - **Semantic check** : si une séance renfo planifiée a été remplacée par un run, il le détecte avant le matching et te demande comment trancher.
+- **Export `.zwo` Zwift** : il prescrit les blocs de puissance, tu génères le fichier et tu l'exécutes sur ton home trainer (FTP-relatif — Zwift applique ta FTP).
+- **Ressenti d'abord** : avant un débrief, il demande tes sensations (RPE, jambes, douleurs, sommeil) et les croise avec la data — la FC seule ment sur la fatigue.
 
 ## Aperçu
 
@@ -89,16 +94,27 @@ demande au coach un état des lieux
 | **Athlète** | `athlete set/show/history` (poids, FTP, FCmax, FCrepos, VMA, historisés) |
 | **Activités** | `activity list/show/laps/streams/stats` (filtres date/sport/famille, agrégats) |
 | **Objectifs** | `goal add/list/show/complete/abandon` |
-| **Plans** | `plan add/list/show/complete/pause`, `plan match` (planifié ↔ Strava, ±1j) |
-| **Séances** | `plan session add/list/done/skip` |
+| **Plans** | `plan add/list/show/complete/pause/abandon`, `plan match` (planifié ↔ Strava, ±1j) |
+| **Séances** | `plan session add/list/done/skip/delete` |
+| **Export Zwift** | `plan session set-blocks <id> "<DSL>"`, `plan session export <id>` (→ `.zwo`) |
 
 Toutes les commandes de lecture acceptent `--json`. Conventions détaillées : [`specs.md §11`](specs.md).
+
+Les blocs d'une séance vélo s'expriment dans un mini-DSL (puissance en % de FTP) :
+
+```bash
+uv run claude-coach plan session set-blocks 14 "warmup:10m:50-65; 3x[12m@95;4m@60]; cooldown:8m:65-50"
+uv run claude-coach plan session export 14        # → data/exports/<slug>.zwo + stdout
+```
+
+`warmup/cooldown:<durée>:<%début>-<%fin>` (rampe), `<durée>@<%>` (steady), `Nx[effort;récup]` (intervalles).
 
 ## Stack
 
 - **Python 3.12+**, **SQLite** (fichier local), **uv** (packaging + venv).
 - **click** (CLI), **httpx** (HTTP Strava avec rate limiter sur les headers `X-ReadRateLimit-Usage`).
-- **mypy --strict**, **ruff**, **pytest** (212 tests, dont integration tests avec faux serveur HTTP).
+- **mypy --strict**, **ruff**, **pytest** (247 tests, dont integration tests avec faux serveur HTTP).
+- **Export `.zwo`** via la stdlib (`xml.etree`) — zéro dépendance ajoutée.
 - **Claude Code subagent** pour le coach — pas de service Python autonome, pas d'API à exposer.
 
 ## Développement
@@ -121,7 +137,7 @@ Pre-commit : `gitleaks` + `make validate`.
 
 ## Crédits & inspiration
 
-Construit en sessions courtes avec **Claude Code** (Claude Opus 4.7). Le subagent coach est un cas d'usage du pattern "subagent + Bash CLI" — pas de MCP, pas de service externe, pas de tokens en clair côté agent. La DB locale et la CLI sont la seule interface entre le coach et tes données.
+Construit en sessions courtes avec **Claude Code** (Claude Opus 4.x). Le subagent coach est un cas d'usage du pattern "subagent + Bash CLI" — pas de MCP, pas de service externe, pas de tokens en clair côté agent. La DB locale et la CLI sont la seule interface entre le coach et tes données.
 
 ## Licence
 
