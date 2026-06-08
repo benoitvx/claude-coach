@@ -39,6 +39,28 @@ ne renseigne pas le vrai fuseau de l'athlète. **Ne conclus jamais une heure de
 lever / un horaire réel** depuis `start_date_local` d'une VirtualRide — réapplique
 mentalement le fuseau probable (Paris UTC+1/+2, La Réunion UTC+4).
 
+### Base de plans de référence (`references/decathlon-plans/`)
+
+Le repo embarque une base de plans d'entraînement curés (Decathlon Coach), que
+tu lis avec `Read` pour t'**inspirer** quand tu conçois un bloc : structure,
+périodisation, types de séances, progression de volume. Commence par
+`references/decathlon-plans/README.md` (index + pertinence de chaque plan), puis
+lis le(s) fichier(s) utile(s) à l'objectif courant (ex. `triathlon-L-70.3-16sem.md`
+pour le 70.3, `course-trail-montagne-50km-12sem.md` pour le trail oct 2026,
+`prevention-genou-stable-2sem.md` / `prevention-epaule-souple-forte-2sem.md` vu
+les antécédents).
+
+⚠️ **Inspiration, JAMAIS application telle quelle.** Ces plans sont génériques :
+allures en % FC/VMA/FTP abstraits, volumes standardisés, aucune prise en compte
+de la blessure / reprise post-op / créneaux / matériel. Tu t'en sers comme d'une
+bibliothèque d'idées, puis tu **adaptes systématiquement** à l'athlète :
+- recale les intensités sur ses valeurs réelles (`athlete show --json`) ;
+- ajuste le volume à sa charge récente et à l'ACWR (jamais le volume brut du plan) ;
+- respecte sa reprise post-op, ses créneaux/lieux et son matériel ;
+- chiffre les séances comme d'habitude (allures/FC/W), ne recopie pas les libellés.
+Quand tu t'inspires d'un plan, dis-le (« en m'inspirant du plan trail montagne… »)
+mais présente toujours **ta** version adaptée.
+
 ### Écriture (toujours proposer en bloc bash, JAMAIS exécuter sans confirmation explicite)
 
 - `uv run claude-coach goal add --name "..." [--target-date YYYY-MM-DD] [--discipline run|swim_run|trail|triathlon|ride|swim|other] [--description "..."] [--success-criteria "..."]`
@@ -230,6 +252,9 @@ adhérence semaine. Tu approfondis :
 2. `status --json` + `athlete show --json` → fitness baseline.
 3. `activity stats --json --by week --from <12 sem>` → volume soutenable récent.
 4. Calcule : semaines avant J, phase actuelle (base / build / peak / taper).
+4 bis. **Inspire-toi de la base de référence** : lis le plan pertinent dans
+   `references/decathlon-plans/` (cf. section dédiée) pour la structure et la
+   périodisation — puis adapte (intensités calibrées, volume selon ACWR, contraintes).
 5. Propose **structure de bloc** (par phase, volume hebdo cible, séances clés).
 6. Génère les **séances de la semaine 1** comme `plan add` + `plan session add` en bloc bash.
 7. **Demande confirmation** avant que l'athlète exécute.

@@ -1,94 +1,63 @@
-# Lot 7 — Débriefs de séance (ressenti / RPE / douleurs)
+# Lot 8 — Base de plans de référence (Decathlon Coach)
 
-## Contexte
-Le coach recueille en conversation le ressenti d'une séance (RPE, sensations,
-signaux douleur) mais rien ne le persiste. Trou identifié quand le débrief du
-run de dimanche n'a pas pu être retrouvé. Besoin renforcé par le suivi
-mollet/ACWR : un historique RPE + douleurs requêtable est central pour
-détecter la surcharge.
+## Objectif
+Constituer une base de plans d'entraînement de référence, curée, que le
+**subagent coach lit comme source d'inspiration** (structure, périodisation,
+types de séances) — JAMAIS à appliquer tel quel. Source : decathloncoach.com
+(contenu public, usage perso).
 
 ## Décisions actées (avec l'utilisateur)
-- **Rattachement** : table dédiée `session_debriefs`, date obligatoire, liens
-  optionnels `activity_id` ET/OU `planned_session_id`. Couvre séance planifiée,
-  activité non planifiée (natation bonus), et ressenti sans activité Strava.
-- **Champs structurés** : `rpe` (entier 1-10), `feeling` (ressenti, texte libre),
-  `pain` (signaux douleur, texte libre). Pas de module wellness complet (hors scope).
+- **Curation ciblée** : ~12-15 plans représentatifs, choisis pour coller aux
+  objectifs réels (reprise post-op, trail 50km oct 2026, swim&run sept 2026,
+  70.3 printemps 2027). Pas d'aspiration exhaustive (~400 variantes existent).
+- **Stockage** : fichiers markdown dans `references/decathlon-plans/`, lus par
+  le coach via `Read`. Pas de table DB, pas de CLI, pas de migration.
 
-## Décision actée — qui écrit
-- [x] **Le coach écrit le débrief lui-même** sur la base de l'échange conversationnel
-      (RPE/ressenti/douleurs donnés par l'utilisateur), puis le signale. Acter un
-      fait réversible que l'utilisateur vient d'énoncer — même logique que le clean match.
+## Sélection cible (à affiner pendant le harvest)
+- **Course à pied** : reprise (155), course route (162), trail montagne longue
+  ~12 sem (170, le plus proche du 50km), VMA confirmé (176)
+- **Natation** : renforcement à sec (803) [+ mobilité (804) si pertinent]
+- **Triathlon** : prépa (229)
+- **Vélo indoor** : home trainer (239), cycling (567)
+- **Vélo route** : renforcement (618)
+- **Ski** : prépa saison (551)
+- **Musculation** : un niveau (209) + articulations (213, pertinent blessures)
 
-## Plan d'implémentation
-
-### 1. Modèle de données
-- [ ] `models.py` : dataclass `SessionDebrief` (id, activity_id?, planned_session_id?,
-      debrief_date, rpe?, feeling?, pain?, created_at, updated_at)
-- [ ] `db.py` : `_migration_005_session_debriefs` + ajout à `MIGRATIONS`
-      - table `session_debriefs`, FK `activity_id`→activities(ON DELETE SET NULL),
-        `planned_session_id`→planned_sessions(ON DELETE SET NULL)
-      - CHECK `rpe BETWEEN 1 AND 10` (nullable)
-      - index sur `debrief_date`
-- [ ] `db.py` : CRUD `add_debrief`, `get_debrief`, `list_debriefs`
-      (filtres : `since`/`until` sur debrief_date, `activity_id`, `planned_session_id`),
-      `update_debrief`, `delete_debrief`, `row_to_debrief`
-
-### 2. CLI (groupe `debrief`)
-- [ ] `claude-coach debrief add [--activity ID] [--session ID] [--date YYYY-MM-DD]
-      [--rpe N] [--feeling TXT] [--pain TXT]` (date défaut = aujourd'hui ;
-      au moins un lien OU une date)
-- [ ] `claude-coach debrief list [--from] [--to] [--activity] [--session] [--json]`
-- [ ] `claude-coach debrief show <ID> [--json]`
-- [ ] `claude-coach debrief edit <ID> [opts]` + `debrief delete <ID>`
-
-### 3. Sérialisation `--json`
-- [ ] `serializers.py` : `serialize_debrief` (snake_case, ISO 8601, null jamais omis)
-- [ ] Optionnel : enrichir `activity show --json` et `plan session list --json`
-      d'un sous-objet `debrief` si présent (à trancher — peut-être lot suivant)
-
-### 4. Intégration coach
-- [ ] `.claude/agents/coach.md` : le coach lit les débriefs (`debrief list --json`)
-      pour calibrer la charge, et écrit le débrief selon le garde-fou validé ci-dessus
-- [ ] Note Zwift/timezone : signaler que VirtualRide + timezone GMT = heure locale
-      potentiellement décalée (ne pas conclure à un lever 6h42)
-
-### 5. Docs
-- [ ] `specs.md` : §4 (modèle de données) + section CLI
-- [ ] `CLAUDE.md` : bloc CLI + mention dans le subagent coach
-- [ ] `backlog.md` : cocher lot 7
-
-### 6. Tests
-- [ ] Unit : migration 005 (idempotence, version), CRUD debrief, CHECK rpe,
-      ON DELETE SET NULL
-- [ ] Unit : serialize_debrief
-- [ ] Integration CLI : add (avec/sans lien), list (filtres), show, edit, delete, --json
-- [ ] `make validate` vert
-
-### 7. Premier usage réel (data)
-- [ ] Consigner le débrief d'aujourd'hui : VirtualRide #18833271761 / session S24
-      vélo, RPE 3/10, RAS
-- [ ] Consigner rétroactivement le run de dimanche 7 juin (J3 post-op) — demander
-      à l'utilisateur RPE + état mollet/cicatrice pour renseigner `pain`
+## Plan d'exécution
+1. [ ] **Harvest URLs** : pour chaque goal retenu, naviguer (browser) → extraire
+       les liens `sport-program/<hash>` → choisir la/les bonne(s) variante(s).
+2. [ ] **Fetch détail** : WebFetch chaque plan choisi → extraire nom, sport,
+       durée, fréquence, objectif, et le détail séance par séance.
+3. [ ] **Écrire les markdown** : `references/decathlon-plans/<sport>-<slug>.md`
+       (format homogène : front-matter léger + tableau séances) + `README.md`
+       index (liste + source + disclaimer usage perso).
+4. [ ] **Intégration coach** : pointer dans `.claude/agents/coach.md` — le coach
+       consulte `references/decathlon-plans/` pour s'inspirer, avec garde-fou
+       FORT : inspiration only, jamais appliquer tel quel, toujours adapter à
+       l'athlète (objectifs, post-op, ACWR, créneaux/lieux, FC/allures chiffrées).
+5. [ ] **Docs** : note dans CLAUDE.md (arborescence `references/`).
+6. [ ] `make validate` (pas de code touché, sanity) ; commit sur demande.
 
 ## Résultat
 
-Lot 7 livré. `make validate` vert (270 tests, +23 nouveaux).
+Lot 8 livré. `make validate` vert (270 tests — aucun code touché, base 100 % markdown).
 
-- **DB** : migration 005 (`session_debriefs`) + CRUD `insert/get/list/update/delete_debrief`.
-- **CLI** : groupe `debrief` (add/list/show/edit/delete), `--json` sur list/show.
-- **Sérialiseur** : `debrief_to_dict` (snake_case, ISO, null jamais omis).
-- **Coach** : `debrief add` en write autonome (exception comme clean match),
-  lecture `debrief list` pour suivi surcharge, note Zwift/timezone, étape 8 du
-  workflow Post-séance. Test subagent OK.
-- **Docs** : specs.md §10 (table + CLI), CLAUDE.md, backlog.md (lot 7 coché).
-- **Tests** : `test_db_debrief.py` (12), `test_cli_debrief.py` (11) — migration,
-  CHECK rpe, ON DELETE SET NULL, filtres, edit partiel, bout-en-bout CLI.
-- **Data** : débrief #1 consigné (08/06, VirtualRide #18833271761 / séance #14,
-  RPE 3, RAS).
+- **13 plans curés** dans `references/decathlon-plans/` + `README.md` (index + disclaimer).
+- Harvest via chrome-devtools (catalogue = SPA, ~400 variantes au total → curation
+  ciblée), détail via WebFetch. Plans longs (triathlon L 64 séances, vélo indoor)
+  condensés en structure + patterns + séances repères.
+- Couverture : trail 50 km, 10 km, semi, VMA, triathlon L (≈70.3), 2× vélo indoor,
+  renfo cycliste, natation à sec, ski, muscu 12 sem, prévention genou + épaule.
+- **Coach** : section dédiée dans `coach.md` (lecture `references/` pour s'inspirer)
+  + garde-fou FORT « inspiration only, jamais appliquer tel quel » + étape 4 bis du
+  workflow « Plan vers event ». Test subagent OK.
+- **Docs** : arborescence `references/` dans CLAUDE.md.
 
-### Reste à faire (input utilisateur)
-- [ ] Débrief rétroactif du run de dimanche 7 juin (J3 post-op) — besoin du RPE
-      + état mollet/cicatrice (conversation passée non disponible dans cette session).
-- [ ] Commit (sur demande).
-- [ ] Décision optionnelle : enrichir `activity show --json` / `plan session list --json`
-      d'un sous-objet `debrief` — reporté, à trancher si le coach en a besoin.
+### Skips assumés (curation)
+- Goal « reprise course » (155) : que du grand débutant → hors profil.
+- Cycling/RPM (567) : redondant avec home trainer.
+- Marche, pilates, foot, boxe, tennis, yoga, basket, cardio-fitness : hors objectifs.
+- Variantes mineures (mêmes séances en 8/10/12 sem) : un seul représentant gardé.
+
+### Reste
+- [ ] Commit + push (sur demande).

@@ -133,11 +133,18 @@ claude-coach/
 │   └── zwo.py            # Génération fichiers .zwo Zwift (lot 6.2)
 ├── tests/
 ├── data/                 # DB SQLite + tokens (gitignored)
+├── references/
+│   └── decathlon-plans/  # Plans d'entraînement de référence (markdown) — source d'inspiration du coach (lot 8)
 ├── tasks/
 │   ├── todo.md           # Plan de la tâche en cours
 │   └── lessons.md        # Erreurs rencontrées (cumulatif)
 └── Makefile
 ```
+
+Le dossier `references/decathlon-plans/` contient une base de plans curés
+(decathloncoach.com, usage perso) que le subagent coach lit comme **source
+d'inspiration** — jamais à appliquer tel quel (cf. `.claude/agents/coach.md`).
+Voir `references/decathlon-plans/README.md`.
 
 ## API Strava — contraintes clés
 
