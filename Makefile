@@ -9,7 +9,7 @@ install:
 	else \
 		echo ">> uv déjà présent ($$(uv --version))"; \
 	fi
-	@export PATH="$$HOME/.local/bin:$$PATH" && uv sync --extra dev
+	@export PATH="$$HOME/.local/bin:$$PATH" && uv sync
 
 validate: lint typecheck test
 

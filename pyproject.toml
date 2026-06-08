@@ -11,7 +11,11 @@ dependencies = [
     "httpx>=0.27",
 ]
 
-[project.optional-dependencies]
+# Outils de dev en dependency-group (PEP 735), PAS en optional-dependencies :
+# uv synchronise le groupe `dev` par défaut (cf. [tool.uv] default-groups), y
+# compris sur `uv run`. En extra, chaque `uv run claude-coach ...` reprunait
+# ruff/mypy/pytest/pre-commit du venv → pre-commit "disparaissait" sans cesse.
+[dependency-groups]
 dev = [
     "ruff>=0.6",
     "mypy>=1.11",
@@ -20,6 +24,9 @@ dev = [
     "pytest-httpserver>=1.1",
     "pre-commit>=3.7",
 ]
+
+[tool.uv]
+default-groups = ["dev"]
 
 [project.scripts]
 claude-coach = "claude_coach.cli:main"
