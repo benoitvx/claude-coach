@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 from contextlib import closing
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal, cast
 
 import click
@@ -36,6 +38,7 @@ from claude_coach.db import (
     get_last_sync,
     get_latest_metrics,
     get_metrics_history,
+    get_planned_session,
     get_training_plan,
     insert_athlete_metrics,
     insert_goal,
@@ -51,6 +54,7 @@ from claude_coach.db import (
     migrate,
     stats_by_sport,
     update_goal_status,
+    update_planned_session_blocks,
     update_planned_session_status,
     update_training_plan_status,
 )
@@ -67,6 +71,7 @@ from claude_coach.serializers import (
     training_plan_to_dict,
 )
 from claude_coach.sync import LOOKBACK_DAYS_DEFAULT, sync_full, sync_incremental
+from claude_coach.zwo import blocks_from_json, blocks_to_json, generate_zwo, is_bike, parse_blocks
 
 
 def _emit_json(data: object) -> None:
@@ -827,6 +832,25 @@ def plan_session() -> None:
     """Gestion des séances planifiées d'un plan."""
 
 
+def _blocks_json_or_raise(sport_type: str, blocks_dsl: str | None) -> str | None:
+    """Parse le DSL de blocs → JSON canonique. Exige un sport vélo. None si pas de DSL."""
+    if blocks_dsl is None:
+        return None
+    if not is_bike(sport_type):
+        raise click.ClickException(
+            f"Les blocs structurés (.zwo) ne s'appliquent qu'aux séances vélo, pas à '{sport_type}'"
+        )
+    try:
+        return blocks_to_json(parse_blocks(blocks_dsl))
+    except ValueError as exc:
+        raise click.ClickException(f"Blocs invalides : {exc}") from exc
+
+
+def _slugify(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower()).strip("-")
+    return slug or "seance"
+
+
 @plan_session.command("add")
 @click.option("--plan-id", "plan_id", required=True, type=int)
 @click.option("--date", "date_", required=True, type=DATE_TYPE, help="Date prévue (YYYY-MM-DD)")
@@ -837,6 +861,11 @@ def plan_session() -> None:
 @click.option("--intensity", type=click.Choice(INTENSITIES), default=None)
 @click.option("--description", default=None)
 @click.option("--notes", default=None)
+@click.option(
+    "--blocks",
+    default=None,
+    help="Blocs structurés vélo pour export .zwo (ex: 'warmup:10m:50-65; 3x[12m@95;4m@60]')",
+)
 def plan_session_add(
     plan_id: int,
     date_: datetime,
@@ -847,8 +876,10 @@ def plan_session_add(
     intensity: str | None,
     description: str | None,
     notes: str | None,
+    blocks: str | None,
 ) -> None:
     """Ajoute une séance planifiée à un plan."""
+    blocks_json = _blocks_json_or_raise(sport, blocks)
     db_path = db_path_from_env()
     with closing(connect(db_path)) as conn:
         migrate(conn)
@@ -865,6 +896,7 @@ def plan_session_add(
             target_intensity=intensity,
             description=description,
             notes=notes,
+            blocks_json=blocks_json,
         )
     click.echo(f"OK — séance #{s.id} créée le {s.planned_date.isoformat()} ({s.sport_type})")
 
@@ -939,6 +971,73 @@ def plan_session_delete(session_id: int) -> None:
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
     click.echo(f"OK — séance #{s.id} ({s.sport_type} {s.planned_date.isoformat()}) supprimée")
+
+
+@plan_session.command("set-blocks")
+@click.argument("session_id", type=int)
+@click.argument("blocks")
+def plan_session_set_blocks(session_id: int, blocks: str) -> None:
+    """Définit (ou remplace) les blocs structurés vélo d'une séance, pour l'export .zwo.
+
+    Exemple : claude-coach plan session set-blocks 12 "warmup:10m:50-65; 3x[12m@95;4m@60]"
+    """
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        existing = get_planned_session(conn, session_id)
+        if existing is None:
+            raise click.ClickException(f"Aucune séance #{session_id}")
+        blocks_json = _blocks_json_or_raise(existing.sport_type, blocks)
+        s = update_planned_session_blocks(conn, session_id, blocks_json)
+    click.echo(f"OK — blocs définis pour la séance #{s.id} ({s.sport_type})")
+
+
+@plan_session.command("export")
+@click.argument("session_id", type=int)
+@click.option(
+    "--output",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Chemin du .zwo (défaut: data/exports/<slug>.zwo)",
+)
+@click.option(
+    "--stdout/--no-stdout",
+    "to_stdout",
+    default=True,
+    help="Afficher aussi le XML sur la sortie standard (défaut: oui)",
+)
+def plan_session_export(session_id: int, output: Path | None, to_stdout: bool) -> None:
+    """Exporte une séance vélo en fichier .zwo (Zwift) à partir de ses blocs structurés."""
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        s = get_planned_session(conn, session_id)
+        if s is None:
+            raise click.ClickException(f"Aucune séance #{session_id}")
+        if not is_bike(s.sport_type):
+            raise click.ClickException(
+                f"Export .zwo réservé aux séances vélo, pas à '{s.sport_type}'."
+            )
+        if not s.blocks_json:
+            raise click.ClickException(
+                f"La séance #{session_id} n'a pas de blocs structurés. Ajoute-les via : "
+                f'claude-coach plan session set-blocks {session_id} "warmup:10m:50-65; ..."'
+            )
+        plan = get_training_plan(conn, s.training_plan_id)
+        blocks = blocks_from_json(s.blocks_json)
+
+    plan_name = plan.name if plan else "Plan"
+    name = f"{plan_name} — {s.planned_date.isoformat()}"
+    xml = generate_zwo(name=name, description=s.description or s.notes, blocks=blocks)
+
+    if output is None:
+        filename = f"{_slugify(plan_name)}-{s.planned_date.isoformat()}-{s.sport_type.lower()}.zwo"
+        output = db_path.parent / "exports" / filename
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(xml, encoding="utf-8")
+    click.echo(f"OK — .zwo écrit : {output}")
+    if to_stdout:
+        click.echo(xml)
 
 
 # --- Sous-commandes activity (Lot 5c) ---------------------------------------

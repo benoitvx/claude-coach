@@ -320,10 +320,33 @@ Découpage en sous-lots :
 ### Export workouts (lot 6)
 
 Exporter les séances planifiées par l'agent vers :
-- **Suunto** : fichiers `.fit` ou via Suunto API
-- **Zwift** : fichiers `.zwo` (format XML natif Zwift)
+- **Suunto** : fichiers `.fit` ou via Suunto API _(lot 6.3 — à venir)_
+- **Zwift** : fichiers `.zwo` (format XML natif Zwift) _(lot 6.2 — livré)_
 
 Permettre à l'utilisateur de suivre le programme directement sur sa montre ou dans Zwift.
+
+#### Export `.zwo` Zwift (lot 6.2)
+
+Une séance vélo porte une structure de blocs (`planned_sessions.blocks_json`),
+saisie via un mini-DSL. `claude-coach plan session export <id>` la convertit en
+fichier `.zwo` (XML, module `zwo.py`, stdlib `xml.etree`) à déposer dans
+`Documents/Zwift/Workouts`.
+
+- `.zwo` est **FTP-relatif** : `Power` = fraction de FTP (Zwift applique la FTP
+  du rider). On n'a donc pas besoin de la FTP à la génération.
+- **Mini-DSL** (segments séparés par `;`, durées `<int>m`/`<int>s`, puissance
+  entière en % FTP) :
+  - `warmup:10m:50-65` → `<Warmup>` (rampe montante)
+  - `40m@65` → `<SteadyState>`
+  - `3x[12m@95;4m@60]` → `<IntervalsT>` (effort ; récup)
+  - `cooldown:8m:65-50` → `<Cooldown>` (rampe descendante)
+- Bornes : puissance ∈ [1, 200] %, durées > 0, `repeat` ≥ 1. DSL invalide →
+  erreur explicite (jamais de blocs partiels). Réservé aux sports de la famille
+  vélo (Ride, VirtualRide, GravelRide, ...).
+- Sortie : fichier `data/exports/<slug>.zwo` (gitignoré) **et** XML sur stdout
+  (désactivable via `--no-stdout`, chemin forçable via `--output`).
+- Saisie des blocs : `plan session add --blocks "<DSL>"` (création) ou
+  `plan session set-blocks <id> "<DSL>"` (retrofit d'une séance existante).
 
 ## 10. Modèle de données — objectifs et planification
 
@@ -388,11 +411,17 @@ Séances planifiées par l'agent (ou saisies manuellement).
 | actual_activity_id | INTEGER FK → activities(id) ON DELETE SET NULL | Rempli par le matching (lot 5b) |
 | status | TEXT NOT NULL | planned / done / skipped / missed (default 'planned') |
 | notes | TEXT | |
+| blocks_json | TEXT | Blocs structurés (puissance/durée) pour l'export `.zwo`, séances vélo — JSON canonique (migration 004, lot 6.2) |
 | created_at | TEXT NOT NULL | |
 | updated_at | TEXT NOT NULL | |
 
 Index : `idx_planned_sessions_plan_date(training_plan_id, planned_date)`,
 `idx_planned_sessions_actual_activity(actual_activity_id)`.
+
+`blocks_json` stocke une liste de blocs canoniques (`kind` ∈ warmup / steady /
+intervals / cooldown, puissance en fraction de FTP). Saisi via un mini-DSL
+(`--blocks`), il alimente `plan session export` → fichier `.zwo` Zwift. Voir
+« Export workouts » plus bas.
 
 ### Commandes CLI (lots 5a + 5b)
 
@@ -410,11 +439,13 @@ claude-coach plan show <ID>          # affiche plan + ses planned_sessions (+ li
 claude-coach plan match [--plan-id <ID>] [--dry-run]  # apparie séances ↔ activités (lot 5b)
 
 # Séances planifiées (sous-groupe `plan session`)
-claude-coach plan session add --plan-id <ID> --date YYYY-MM-DD --sport <SPORT> [--session-type ...] [--duration <S>] [--distance <M>] [--intensity ...] [--description ...]
+claude-coach plan session add --plan-id <ID> --date YYYY-MM-DD --sport <SPORT> [--session-type ...] [--duration <S>] [--distance <M>] [--intensity ...] [--description ...] [--blocks "<DSL>"]
 claude-coach plan session list --plan-id <ID> [--status ...]
 claude-coach plan session done <ID>  # marquage manuel sans lien vers une activité Strava
 claude-coach plan session skip <ID>  # séance passée volontairement (substitution, repos)
 claude-coach plan session delete <ID>  # supprime une séance non réalisée (report/replanif), refus si statut ≠ planned
+claude-coach plan session set-blocks <ID> "<DSL>"  # définit les blocs vélo structurés (lot 6.2)
+claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]  # génère le .zwo Zwift (lot 6.2)
 ```
 
 Validation des enums : `click.Choice(...)` côté CLI seulement, pas de CHECK SQL

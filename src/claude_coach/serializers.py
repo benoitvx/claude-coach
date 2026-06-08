@@ -151,6 +151,7 @@ def planned_session_to_dict(s: PlannedSession) -> dict[str, object]:
         "actual_activity_id": s.actual_activity_id,
         "status": s.status,
         "notes": s.notes,
+        "blocks": json.loads(s.blocks_json) if s.blocks_json else None,
         "created_at": s.created_at.isoformat(),
         "updated_at": s.updated_at.isoformat(),
     }

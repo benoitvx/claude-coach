@@ -669,3 +669,163 @@ def test_plan_match_json_separates_matched_and_unmatched(
     assert payload["matched"][0]["activity_id"] == 5001
     assert payload["matched"][0]["same_day"] is True
     assert payload["unmatched"] == []
+
+
+# --- Lot 6.2 : export .zwo --------------------------------------------------
+
+
+def _make_plan(runner: CliRunner) -> None:
+    runner.invoke(
+        main,
+        ["plan", "add", "--name", "Bloc Vélo", "--start", "2026-06-01", "--end", "2026-06-30"],
+    )
+
+
+def test_session_add_with_blocks_stores_and_serializes(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+
+    result = runner.invoke(
+        main,
+        [
+            "plan",
+            "session",
+            "add",
+            "--plan-id",
+            "1",
+            "--date",
+            "2026-06-12",
+            "--sport",
+            "VirtualRide",
+            "--blocks",
+            "warmup:10m:50-65; 3x[12m@95;4m@60]; cooldown:8m:65-50",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    with connect(db_path) as conn:
+        migrate(conn)
+        s = get_planned_session(conn, 1)
+    assert s is not None
+    assert s.blocks_json is not None
+
+    listed = runner.invoke(main, ["plan", "session", "list", "--plan-id", "1", "--json"])
+    blocks = json.loads(listed.output)[0]["blocks"]
+    assert [b["kind"] for b in blocks] == ["warmup", "intervals", "cooldown"]
+
+
+def test_session_add_blocks_on_non_bike_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+
+    result = runner.invoke(
+        main,
+        [
+            "plan",
+            "session",
+            "add",
+            "--plan-id",
+            "1",
+            "--date",
+            "2026-06-12",
+            "--sport",
+            "Run",
+            "--blocks",
+            "40m@65",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "vélo" in result.output
+
+
+def test_session_set_blocks_then_export(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-12", "--sport", "Ride"],
+    )
+
+    set_res = runner.invoke(
+        main,
+        ["plan", "session", "set-blocks", "1", "warmup:5m:50-60; 50m@68; cooldown:5m:60-50"],
+    )
+    assert set_res.exit_code == 0, set_res.output
+
+    out = tmp_path / "seance.zwo"
+    exp = runner.invoke(
+        main, ["plan", "session", "export", "1", "--output", str(out), "--no-stdout"]
+    )
+    assert exp.exit_code == 0, exp.output
+    assert out.exists()
+    content = out.read_text(encoding="utf-8")
+    assert "<sportType>bike</sportType>" in content
+    assert 'Duration="3000"' in content  # 50 min steady
+
+
+def test_export_default_path_under_data(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    db_path = _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        [
+            "plan",
+            "session",
+            "add",
+            "--plan-id",
+            "1",
+            "--date",
+            "2026-06-12",
+            "--sport",
+            "Ride",
+            "--blocks",
+            "30m@65",
+        ],
+    )
+
+    result = runner.invoke(main, ["plan", "session", "export", "1", "--no-stdout"])
+    assert result.exit_code == 0, result.output
+    expected = db_path.parent / "exports"
+    assert expected.is_dir()
+    assert list(expected.glob("*.zwo"))
+
+
+def test_export_non_bike_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-12", "--sport", "Run"],
+    )
+
+    result = runner.invoke(main, ["plan", "session", "export", "1"])
+    assert result.exit_code != 0
+    assert "vélo" in result.output
+
+
+def test_export_without_blocks_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-12", "--sport", "Ride"],
+    )
+
+    result = runner.invoke(main, ["plan", "session", "export", "1"])
+    assert result.exit_code != 0
+    assert "blocs structurés" in result.output
+
+
+def test_export_unknown_session_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    result = CliRunner().invoke(main, ["plan", "session", "export", "999"])
+    assert result.exit_code != 0
+    assert "Aucune séance" in result.output

@@ -78,11 +78,11 @@ Itérations post-livraison (mai 2026, suite au dogfood) :
 
 > À spécifier en détail quand le lot 5 est terminé. Grandes lignes :
 
-- [ ] **6.1** Rechercher les formats acceptés par Suunto (API ou fichiers .fit) et Zwift (fichiers .zwo)
-- [ ] **6.2** Générer des fichiers `.zwo` (XML) pour les séances vélo Zwift
+- [x] **6.1** Rechercher les formats acceptés par Suunto (API ou fichiers .fit) et Zwift (fichiers .zwo) _(zwift = .zwo XML FTP-relatif ; choix module `zwo.py` stdlib)_
+- [x] **6.2** Générer des fichiers `.zwo` (XML) pour les séances vélo Zwift _(module `zwo.py` + blocs structurés `blocks_json` migration 004 + mini-DSL)_
 - [ ] **6.3** Générer des fichiers `.fit` pour les séances Suunto
-- [ ] **6.4** Commande CLI `claude-coach export --target zwift|suunto --session <id>`
-- [ ] **6.5** Tests : génération de fichiers, validation des formats
+- [~] **6.4** Commande CLI export _(branche zwift livrée via `plan session export` ; commande unifiée `export --target` à refondre quand 6.3/Suunto arrivera)_
+- [x] **6.5** Tests : génération de fichiers, validation des formats _(zwift — `tests/test_zwo.py` + tests CLI ; Suunto à venir avec 6.3)_
 
 ---
 

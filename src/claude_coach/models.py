@@ -187,3 +187,4 @@ class PlannedSession:
     description: str | None = None
     actual_activity_id: int | None = None
     notes: str | None = None
+    blocks_json: str | None = None

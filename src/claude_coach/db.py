@@ -234,10 +234,16 @@ def _migration_003_goals_training_plans(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migration_004_session_blocks(conn: sqlite3.Connection) -> None:
+    """Blocs structurés (puissance/durée) d'une séance, pour l'export .zwo (Lot 6.2)."""
+    conn.execute("ALTER TABLE planned_sessions ADD COLUMN blocks_json TEXT")
+
+
 MIGRATIONS: list[Callable[[sqlite3.Connection], None]] = [
     _migration_001_initial_schema,
     _migration_002_athlete_metrics,
     _migration_003_goals_training_plans,
+    _migration_004_session_blocks,
 ]
 
 
@@ -860,6 +866,7 @@ def _row_to_planned_session(row: sqlite3.Row) -> PlannedSession:
         actual_activity_id=row["actual_activity_id"],
         status=row["status"],
         notes=row["notes"],
+        blocks_json=row["blocks_json"],
         created_at=datetime.fromisoformat(row["created_at"]),
         updated_at=datetime.fromisoformat(row["updated_at"]),
     )
@@ -873,7 +880,7 @@ _PLAN_COLS = "id, goal_id, name, start_date, end_date, status, notes, created_at
 _SESSION_COLS = (
     "id, training_plan_id, planned_date, sport_type, session_type, "
     "target_duration_s, target_distance_m, target_intensity, description, "
-    "actual_activity_id, status, notes, created_at, updated_at"
+    "actual_activity_id, status, notes, blocks_json, created_at, updated_at"
 )
 
 
@@ -1029,6 +1036,7 @@ def insert_planned_session(
     target_intensity: str | None = None,
     description: str | None = None,
     notes: str | None = None,
+    blocks_json: str | None = None,
     status: str = "planned",
 ) -> PlannedSession:
     now = _now_iso()
@@ -1036,8 +1044,8 @@ def insert_planned_session(
         cur = conn.execute(
             "INSERT INTO planned_sessions (training_plan_id, planned_date, sport_type, "
             "session_type, target_duration_s, target_distance_m, target_intensity, "
-            "description, status, notes, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "description, status, notes, blocks_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 training_plan_id,
                 planned_date.isoformat(),
@@ -1049,6 +1057,7 @@ def insert_planned_session(
                 description,
                 status,
                 notes,
+                blocks_json,
                 now,
                 now,
             ),
@@ -1100,6 +1109,21 @@ def delete_planned_session(conn: sqlite3.Connection, session_id: int) -> Planned
     with conn:
         conn.execute("DELETE FROM planned_sessions WHERE id = ?", (session_id,))
     return s
+
+
+def update_planned_session_blocks(
+    conn: sqlite3.Connection, session_id: int, blocks_json: str | None
+) -> PlannedSession:
+    with conn:
+        cur = conn.execute(
+            "UPDATE planned_sessions SET blocks_json = ?, updated_at = ? WHERE id = ?",
+            (blocks_json, _now_iso(), session_id),
+        )
+    if cur.rowcount == 0:
+        raise ValueError(f"Aucune séance #{session_id}")
+    updated = get_planned_session(conn, session_id)
+    assert updated is not None
+    return updated
 
 
 def update_planned_session_status(

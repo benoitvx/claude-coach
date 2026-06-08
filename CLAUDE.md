@@ -58,11 +58,15 @@ claude-coach plan pause <ID>
 claude-coach plan abandon <ID>
 claude-coach plan match [--plan-id <ID>] [--dry-run]   # apparie séances ↔ activités (lot 5b)
 
-claude-coach plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swim|...> [opts]
+claude-coach plan session add --plan-id <ID> --date <DATE> --sport <Run|Ride|Swim|...> [opts] [--blocks "<DSL>"]
 claude-coach plan session list --plan-id <ID> [--status ...]
 claude-coach plan session done <ID>
 claude-coach plan session skip <ID>
 claude-coach plan session delete <ID>   # supprime une séance non réalisée (report/replanif)
+
+# Export workouts (lot 6.2)
+claude-coach plan session set-blocks <ID> "<DSL>"        # blocs vélo structurés (.zwo)
+claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]   # génère le .zwo Zwift
 
 # Lecture activités pour l'agent coach (lot 5c)
 claude-coach activity list  [--from <DATE>] [--to <DATE>] [--sport ...] [--family run|ride|swim|...] [--limit N]
@@ -113,7 +117,8 @@ claude-coach/
 │   ├── db.py             # Couche SQLite (migrations, CRUD)
 │   ├── sync.py           # Logique de synchronisation
 │   ├── coach.py          # Matching planifié vs réalisé (lot 5b)
-│   └── serializers.py    # Sérialisation modèle → dict pour `--json` (lot 5c)
+│   ├── serializers.py    # Sérialisation modèle → dict pour `--json` (lot 5c)
+│   └── zwo.py            # Génération fichiers .zwo Zwift (lot 6.2)
 ├── tests/
 ├── data/                 # DB SQLite + tokens (gitignored)
 ├── tasks/
