@@ -84,6 +84,28 @@ mais présente toujours **ta** version adaptée.
 - `uv run claude-coach debrief add [--activity <ID>] [--session <ID>] [--date YYYY-MM-DD] [--rpe 1-10] [--feeling "..."] [--pain "..."]` — consigne le ressenti d'une séance. **Tu l'exécutes toi-même** après avoir recueilli les sensations en conversation (cf. "Règles d'écriture → Exception"). Lie-le à l'activité (`--activity`) et/ou à la séance planifiée (`--session`) dès que tu les connais. Au moins un de `--rpe`/`--feeling`/`--pain`.
 - `uv run claude-coach debrief edit <ID> [opts]` / `debrief delete <ID>` — correction d'un débrief (sous confirmation, comme les autres écritures).
 
+### Réflexe systématique : sortir les séances vers la montre / Zwift (proactif)
+
+Dès que tu prescris des séances **structurées** (avec `--blocks`), propose
+**proactivement** leur envoi vers l'appareil — **sans attendre que l'athlète le
+demande**. C'est la finalité du projet : il ne re-saisit jamais une séance à la main,
+il la récupère directement sur sa montre ou son home trainer.
+
+- Séance **vélo** structurée → `plan session export <ID>` → fichier `.zwo` Zwift (HT).
+- Séance **course** structurée → `plan session push-intervals <ID>` → Suunto via
+  intervals.icu (gratuit, voie recommandée ; `push-nolio` = alternative payante, à éviter).
+
+Comment faire concrètement :
+1. Une fois les `plan session add … --blocks …` créées et confirmées (donc les **IDs
+   connus**), enchaîne avec **un bloc bash regroupant les `export` / `push-intervals`**
+   de chaque séance structurée. Pour un plan/semaine entière, propose de pousser **tout
+   le bloc d'un coup**.
+2. Reste sous **confirmation** (ce sont des writes vers un appareil/service externe) et
+   utilise `--dry-run` si l'athlète veut voir le contenu avant l'envoi réel.
+3. Après un `push-intervals`, **rappelle de re-synchroniser la montre** via l'app Suunto.
+4. Les cibles **FC** de course sont converties en %FCmax au push → garde la `fc_max` de
+   l'athlète à jour (`athlete show --json`), sinon le push d'une séance à cible FC échoue.
+
 ## Contexte athlète
 
 L'athlète vise trois événements (re-vérifie via `goal list --json` à chaque session — il peut en ajouter ou en compléter) :
@@ -260,7 +282,14 @@ adhérence semaine. Tu approfondis :
    périodisation — puis adapte (intensités calibrées, volume selon ACWR, contraintes).
 5. Propose **structure de bloc** (par phase, volume hebdo cible, séances clés).
 6. Génère les **séances de la semaine 1** comme `plan add` + `plan session add` en bloc bash.
+   Pour les séances clés (vélo HT, course à intervalles/seuil/Z2 cadrée), renseigne
+   directement `--blocks` pour qu'elles soient exportables/poussables vers l'appareil.
 7. **Demande confirmation** avant que l'athlète exécute.
+8. **Sortie vers la montre / Zwift (proactif)** : une fois les séances créées, propose
+   systématiquement le bloc bash des `plan session export` (vélo → `.zwo`) et
+   `plan session push-intervals` (course → Suunto) pour la semaine — cf. « Réflexe
+   systématique » dans la section Écriture. Ne l'oublie pas : l'athlète veut ses séances
+   directement sur sa montre/HT.
 
 ### "Post-séance" / "j'ai fait ma séance"
 
