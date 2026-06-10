@@ -64,12 +64,19 @@ claude-coach plan session done <ID>
 claude-coach plan session skip <ID>
 claude-coach plan session delete <ID>   # supprime une séance non réalisée (report/replanif)
 
-# Export workouts (lots 6.2 & 9)
-claude-coach plan session set-blocks <ID> "<DSL>"        # blocs structurés (vélo→.zwo / running→Nolio)
+# Export workouts (lots 6.2, 9 & 10)
+claude-coach plan session set-blocks <ID> "<DSL>"        # blocs structurés (vélo→.zwo / running→intervals.icu|Nolio)
 claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]   # génère le .zwo Zwift (vélo)
-claude-coach plan session push-nolio <ID> [--dry-run] [--athlete-id N]  # pousse la séance running → Nolio → Suunto (lot 9)
+claude-coach plan session push-intervals <ID> [--dry-run]   # pousse la séance running → intervals.icu → Suunto (lot 10, GRATUIT, voie recommandée)
+claude-coach plan session push-nolio <ID> [--dry-run] [--athlete-id N]  # idem via Nolio (lot 9, API réservée aux comptes payants)
 
-# Intégration Nolio (lot 9) — OAuth2 + push séances structurées vers la montre
+# Intégration intervals.icu (lot 10) — voie running→Suunto GRATUITE (recommandée)
+# Auth = clé API perso (pas d'OAuth) : Settings → Developer Settings sur intervals.icu,
+# puis renseigner intervals_api_key / intervals_athlete_id dans data/config.json.
+# Cocher « Upload planned workouts » dans /settings intervals.icu pour la synchro Suunto.
+claude-coach intervals status [--json]  # état config (clé API + athlete_id)
+
+# Intégration Nolio (lot 9) — OAuth2 + push séances structurées vers la montre (API payante)
 claude-coach nolio auth                 # flow OAuth2 Nolio (une fois)
 claude-coach nolio status [--json]      # état config + tokens Nolio
 
@@ -138,7 +145,8 @@ claude-coach/
 │   ├── zwo.py            # Génération fichiers .zwo Zwift, séances vélo (lot 6.2)
 │   ├── workout.py        # DSL séances running structurées → blocs canoniques (lot 9)
 │   ├── nolio_auth.py     # OAuth2 Nolio (tokens, refresh rotatif) (lot 9)
-│   └── nolio.py          # Client API Nolio + mapping structured_workout (lot 9)
+│   ├── nolio.py          # Client API Nolio + mapping structured_workout (lot 9)
+│   └── intervals.py      # Client API intervals.icu (clé API) + mapping texte workout (lot 10, gratuit)
 ├── tests/
 ├── data/                 # DB SQLite + tokens (gitignored)
 ├── references/

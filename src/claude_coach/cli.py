@@ -64,6 +64,14 @@ from claude_coach.db import (
     update_planned_session_status,
     update_training_plan_status,
 )
+from claude_coach.intervals import (
+    IntervalsClient,
+    IntervalsClientError,
+    build_event_payload,
+    intervals_sport_type,
+    load_intervals_config,
+    workout_doc_from_items,
+)
 from claude_coach.models import Activity, PlannedSession, SessionDebrief
 from claude_coach.nolio import (
     NolioClient,
@@ -162,6 +170,38 @@ def nolio_status(json_out: bool) -> None:
         click.echo(f"Authentifié  : oui (token expire {expires_at})")
     else:
         click.echo("Authentifié  : non — lance `claude-coach nolio auth`")
+
+
+@main.group("intervals")
+def intervals_group() -> None:
+    """Intégration intervals.icu (gratuit) : push de séances vers la montre Suunto.
+
+    Auth = clé API perso (pas d'OAuth) : génère-la dans intervals.icu → Settings →
+    Developer Settings, puis renseigne `intervals_api_key` et `intervals_athlete_id`
+    dans data/config.json (ou les env vars INTERVALS_API_KEY / INTERVALS_ATHLETE_ID).
+    Coche aussi « Upload planned workouts » dans /settings pour la synchro Suunto.
+    """
+
+
+@intervals_group.command("status")
+@click.option("--json", "json_out", is_flag=True, help="Sortie JSON parseable")
+def intervals_status(json_out: bool) -> None:
+    """Affiche l'état de la config intervals.icu (clé API + athlete_id)."""
+    try:
+        config = load_intervals_config()
+        config_present = True
+        athlete_id: str | None = config.athlete_id
+    except ConfigError:
+        config_present = False
+        athlete_id = None
+    if json_out:
+        _emit_json({"config_present": config_present, "athlete_id": athlete_id})
+        return
+    click.echo(f"Config intervals.icu : {'OK' if config_present else 'manquante'}")
+    if config_present:
+        click.echo(f"Athlete id           : {athlete_id}")
+    else:
+        click.echo("Renseigne intervals_api_key / intervals_athlete_id dans data/config.json")
 
 
 @main.command()
@@ -1185,6 +1225,84 @@ def plan_session_push_nolio(session_id: int, dry_run: bool, athlete_id: int | No
     click.echo(
         f"OK — séance #{s.id} poussée sur Nolio (id Nolio: {nolio_id}). "
         "Elle sera synchronisée automatiquement vers ta montre."
+    )
+
+
+@plan_session.command("push-intervals")
+@click.argument("session_id", type=int)
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help="Affiche le payload intervals.icu sans l'envoyer (debug)",
+)
+def plan_session_push_intervals(session_id: int, dry_run: bool) -> None:
+    """Pousse une séance structurée vers intervals.icu (→ montre Suunto, gratuit).
+
+    Alternative gratuite à `push-nolio`. La séance est créée comme événement
+    « WORKOUT » dans le calendrier intervals.icu ; avec « Upload planned workouts »
+    coché dans /settings, elle est synchronisée vers la montre (SuuntoPlus Guides).
+    Réservé aux séances non-vélo (le vélo s'exporte en .zwo via `export`).
+    """
+    db_path = db_path_from_env()
+    with closing(connect(db_path)) as conn:
+        migrate(conn)
+        s = get_planned_session(conn, session_id)
+        if s is None:
+            raise click.ClickException(f"Aucune séance #{session_id}")
+        if is_bike(s.sport_type):
+            raise click.ClickException(
+                f"Push intervals.icu non supporté pour le vélo ('{s.sport_type}') : utilise "
+                f"`claude-coach plan session export {session_id}` (Zwift .zwo)."
+            )
+        try:
+            intervals_sport_type(s.sport_type)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        if not s.blocks_json:
+            raise click.ClickException(
+                f"La séance #{session_id} n'a pas de blocs structurés. Ajoute-les via : "
+                f"claude-coach plan session set-blocks {session_id} "
+                f'"warmup:15min@h120-140; 6x[400m@p3:45;rest:90s@h130]; cooldown:10min@h120"'
+            )
+        plan = get_training_plan(conn, s.training_plan_id)
+        items = workout_from_json(s.blocks_json)
+        # FCmax pour convertir les cibles FC (bpm → %FCmax ; Suunto refuse les bpm).
+        tokens = load_tokens(token_path_from_env())
+        metrics = get_latest_metrics(conn, tokens.athlete_id) if tokens else None
+        max_hr = metrics.fc_max if metrics else None
+
+    plan_name = plan.name if plan else "Plan"
+    try:
+        workout_doc = workout_doc_from_items(items, max_hr=max_hr)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    payload = build_event_payload(
+        s,
+        plan_name=plan_name,
+        sport_type=s.sport_type,
+        workout_doc=workout_doc,
+        description=s.description or s.notes,
+    )
+
+    if dry_run:
+        _emit_json(payload)
+        return
+
+    try:
+        config = load_intervals_config()
+    except ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        with IntervalsClient(config) as client:
+            created = client.upsert_event(payload)
+    except (AuthError, IntervalsClientError) as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    event_id = created.get("id") or "?"
+    click.echo(
+        f"OK — séance #{s.id} poussée sur intervals.icu (event id: {event_id}). "
+        "Avec « Upload planned workouts » coché, elle part vers ta montre Suunto."
     )
 
 

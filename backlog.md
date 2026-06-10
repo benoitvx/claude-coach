@@ -98,7 +98,22 @@ structurée est synchronisée automatiquement en SuuntoPlus Guide vers la Suunto
 - [x] **9.5** CLI : groupe `nolio` (`auth`/`status`), `plan session push-nolio <ID> [--dry-run]`, routage blocs vélo/running
 - [x] **9.6** Tests : `test_workout.py`, `test_nolio.py`, `test_nolio_auth.py` + CLI dry-run
 - [x] **9.7** Docs : `specs.md`, `backlog.md`, `README.md`, `.claude/agents/coach.md`
-- [~] **9.8** Smoke test réel : OAuth `nolio auth` ✅, payload validé en dry-run ✅. **Push bloqué** : Nolio renvoie `403 "API access requires an active coach or premium subscription"` sur `create/planned/training/` → l'écriture API est réservée aux comptes coach/premium. Code OK (gestion 4xx ajoutée). **Reste** : abonnement Nolio premium/coach pour débloquer le push (puis confirmer l'unité d'allure m/s sur la montre), ou fallback saisie manuelle via `--dry-run`.
+- [~] **9.8** Smoke test réel : OAuth `nolio auth` ✅, payload validé en dry-run ✅. **Push bloqué** : Nolio renvoie `403 "API access requires an active coach or premium subscription"` sur `create/planned/training/` → l'écriture API est réservée aux comptes coach/premium. Code OK (gestion 4xx ajoutée). **Reste** : abonnement Nolio premium/coach pour débloquer le push (puis confirmer l'unité d'allure m/s sur la montre), ou fallback saisie manuelle via `--dry-run`. **→ Contourné par le Lot 10 (intervals.icu, gratuit).**
+
+## Lot 10 — Export running vers Suunto via intervals.icu (alternative gratuite à Nolio)
+
+L'écriture sur l'API Nolio étant réservée aux comptes payants (9.8), **intervals.icu**
+fournit la même voie running→Suunto **gratuitement** : API ouverte (clé perso) +
+upload natif des séances planifiées vers Suunto (SuuntoPlus Guides). On clone-adapte
+la couche Nolio en réutilisant `workout.py` + `blocks_json` ; Nolio reste en place.
+
+- [x] **10.1** Recherche API intervals.icu + confirmation gratuité (modèle don, Suunto upload gratuit) ; Basic `API_KEY:<clé>`, events via `/api/v1/athlete/{id}/events`
+- [x] **10.2** Modèle `IntervalsConfig` (`models.py`) + `load_intervals_config` (env > `data/config.json`, clés `intervals_api_key`/`intervals_athlete_id`)
+- [x] **10.3** `intervals.py` : sport-map, `workout_doc_from_items` (blocs canoniques → **`workout_doc` structuré** ; **FC convertie en `%hr`/%FCmax** car Suunto rejette les bpm absolus — voir 10.7), `build_event_payload`, `IntervalsClient.upsert_event` (GET+PUT/POST idempotent, Basic auth, retries 5xx/429/timeout)
+- [x] **10.4** CLI : groupe `intervals` (`status`), `plan session push-intervals <ID> [--dry-run]`, routage blocs vélo/running
+- [x] **10.5** Tests : `test_intervals.py` (config, mapping `workout_doc`, payload, client httpserver POST+upsert) + CLI dry-run/erreurs/status
+- [x] **10.6** Docs : `specs.md` (lot 10), `CLAUDE.md`, `backlog.md`, `.claude/agents/coach.md`
+- [x] **10.7** Smoke test réel (2026-06-10) **VALIDÉ bout-en-bout (upload Suunto inclus)** : clé API + athlete_id (`i609642`) configurés, « Upload planned workouts » coché. Push séance #18 (Run, FC 130-148 bpm → 68-77 %FCmax) → event **structuré** + **upload Suunto sans erreur** (`push_errors` vide). Idempotence confirmée (re-push = même event id, pas de doublon). **3 découvertes (toutes via tests jetables create→GET→delete)** : (1) envoyer `workout_doc` JSON, pas du texte ; (2) **FC bpm absolus rejetée par Suunto (`value > 250`) → convertir en %FCmax** ; (3) POST ne dé-duplique pas sur `external_id` → upsert (GET+PUT). Piège diagnostic : Suunto n'uploade que la semaine à venir → tester avec des dates dans la fenêtre.
 
 ## Lot 7 — Débriefs de séance (ressenti / RPE / douleurs)
 

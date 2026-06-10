@@ -61,6 +61,17 @@ class NolioTokens:
 
 
 @dataclass(frozen=True)
+class IntervalsConfig:
+    """Config intervals.icu (lot 10). Auth = clé API perso (Basic `API_KEY:<clé>`),
+    pas d'OAuth. `athlete_id` cible l'URL `/athlete/{id}/events`. `base_url`
+    surchargeable pour les tests."""
+
+    api_key: str
+    athlete_id: str
+    base_url: str | None = None
+
+
+@dataclass(frozen=True)
 class SyncLog:
     id: int
     started_at: datetime

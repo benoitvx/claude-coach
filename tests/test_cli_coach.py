@@ -904,3 +904,83 @@ def test_push_nolio_without_blocks_errors(monkeypatch: MonkeyPatch, tmp_path: Pa
     result = runner.invoke(main, ["plan", "session", "push-nolio", "1", "--dry-run"])
     assert result.exit_code != 0
     assert "blocs structurés" in result.output
+
+
+def test_push_intervals_dry_run_emits_payload(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    # séance allure (sans FC) → pas besoin de FCmax ; vérifie le câblage du payload.
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Run"],
+    )
+    runner.invoke(
+        main,
+        ["plan", "session", "set-blocks", "1", "warmup:15min; 6x[400m@p3:45;rest:90s]"],
+    )
+
+    result = runner.invoke(main, ["plan", "session", "push-intervals", "1", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["type"] == "Run"
+    assert payload["category"] == "WORKOUT"
+    assert payload["start_date_local"] == "2026-09-01T00:00:00"
+    assert payload["external_id"] == "claude-coach-1"
+    steps = payload["workout_doc"]["steps"]
+    assert steps[0] == {"text": "Warmup", "duration": 900}
+    assert steps[1]["reps"] == 6  # répétition
+    assert steps[1]["steps"][0]["pace"] == {"units": "secs/km", "value": 225}  # 3:45/km
+
+
+def test_push_intervals_hr_without_fcmax_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    # cible FC mais aucune FCmax connue (pas de tokens/métriques en test) → erreur claire.
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Run"],
+    )
+    runner.invoke(main, ["plan", "session", "set-blocks", "1", "30min@h140"])
+    result = runner.invoke(main, ["plan", "session", "push-intervals", "1", "--dry-run"])
+    assert result.exit_code != 0
+    assert "FCmax" in result.output
+
+
+def test_push_intervals_on_bike_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Ride"],
+    )
+    result = runner.invoke(main, ["plan", "session", "push-intervals", "1", "--dry-run"])
+    assert result.exit_code != 0
+    assert "vélo" in result.output
+
+
+def test_push_intervals_without_blocks_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Run"],
+    )
+    result = runner.invoke(main, ["plan", "session", "push-intervals", "1", "--dry-run"])
+    assert result.exit_code != 0
+    assert "blocs structurés" in result.output
+
+
+def test_intervals_status_without_config(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    _setup_env(monkeypatch, tmp_path)
+    monkeypatch.delenv("INTERVALS_API_KEY", raising=False)
+    monkeypatch.delenv("INTERVALS_ATHLETE_ID", raising=False)
+    monkeypatch.chdir(tmp_path)  # pas de data/config.json ici
+    result = CliRunner().invoke(main, ["intervals", "status", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["config_present"] is False
+    assert payload["athlete_id"] is None

@@ -317,11 +317,11 @@ Découpage en sous-lots :
 - **5c** : commandes CLI orientées agent (queries riches, sortie JSON) ✅ (cf. §11)
 - **5d** : subagent + system prompt avec règles d'entraînement ✅ (`.claude/agents/coach.md`)
 
-### Export workouts (lots 6 & 9)
+### Export workouts (lots 6, 9 & 10)
 
 Exporter les séances planifiées par l'agent vers :
 - **Zwift** (vélo) : fichiers `.zwo` (XML natif Zwift, FTP-relatif) _(lot 6.2 — livré)_
-- **Suunto / Garmin** (course à pied surtout) : via l'**API Nolio** _(lot 9 — livré)_
+- **Suunto / Garmin** (course à pied surtout) : via l'**API intervals.icu** _(lot 10 — livré, gratuit, **voie recommandée**)_ ou l'**API Nolio** _(lot 9 — livré, mais écriture API réservée aux comptes payants)_
 
 Permettre à l'utilisateur de suivre le programme directement sur sa montre ou dans Zwift.
 
@@ -362,6 +362,63 @@ Nolio et la crée via `POST /api/create/planned/training/`. Nolio la marque
 - **Unités Nolio** : durée = s, distance = m, allure = m/s, FC = bpm, puissance = W.
 - **Scope v1** : sports non-vélo (le vélo garde `.zwo`→Zwift). `--dry-run` imprime
   le payload JSON sans appel réseau (debug / fallback saisie manuelle).
+
+#### Push intervals.icu (lot 10) — alternative gratuite à Nolio
+
+**Pourquoi** : l'écriture sur l'API Nolio (`create/planned/training/`) est réservée
+aux comptes coach/premium (Nolio renvoie `403 "API access requires an active coach
+or premium subscription"`, cf. backlog 9.8). **intervals.icu** est **gratuit** (modèle
+don/supporter, aucune feature derrière un paywall), expose une **API ouverte** (clé
+perso) et **synchronise nativement les séances planifiées vers Suunto** (SuuntoPlus
+Guides : cibles allure, FC, distance). C'est donc la voie running→Suunto recommandée.
+
+`claude-coach plan session push-intervals <id>` réutilise les **mêmes blocs canoniques**
+(`workout.py`, `Step`/`Repetition`) que Nolio, mais les mappe vers le **`workout_doc`
+structuré** (JSON) d'intervals.icu et crée/met à jour un événement calendrier via
+`/api/v1/athlete/{id}/events`. intervals.icu pousse ensuite vers la montre. Nolio (lot 9)
+reste en place comme voie alternative.
+
+- **Module** : `intervals.py` (mapping `workout_doc` + `IntervalsClient` httpx). Modèle
+  `IntervalsConfig` dans `models.py`. Zéro dépendance ajoutée. `workout.py` et le
+  stockage `blocks_json` réutilisés tels quels.
+- **Auth** : clé API perso (**pas d'OAuth**), Basic `API_KEY:<clé>`. Config
+  `INTERVALS_API_KEY` / `INTERVALS_ATHLETE_ID` (env ou `data/config.json` :
+  `intervals_api_key` / `intervals_athlete_id`). Clé générée dans intervals.icu →
+  Settings → Developer Settings. Synchro montre : cocher « Upload planned workouts »
+  dans /settings intervals.icu.
+- **`workout_doc` structuré (et PAS le texte)** : décision clé, **vérifiée contre l'API
+  réelle**. Le parseur de *texte* d'intervals.icu (champ `description`) n'interprète pas
+  la FC en bpm absolus ; le `workout_doc` JSON est sans ambiguïté. Mapping des `Step` :
+  - durée → `duration` (s) ; distance → `distance` (m).
+  - allure (m/s) → `{"pace": {"units": "secs/km", "value"|"start"/"end"}}` (start = plus rapide).
+  - **FC → `{"hr": {"units": "%hr", ...}}` (% de FCmax), JAMAIS `bpm`** (voir ci-dessous).
+  - puissance (W) → `{"power": {"units": "w", ...}}`.
+  - intensité warmup/cooldown/rest → `text` (Warmup/Cooldown/Recovery) ; active → sans label.
+  - `Repetition` → `{"reps": N, "steps": [...]}`.
+  Le champ `description` de l'event porte le contexte humain (`session.description`/`notes`).
+- **FC en %FCmax obligatoire (pas bpm)** : un guide Suunto avec FC en **bpm absolus est
+  rejeté** par l'API Suunto (`POST cloudapi.suunto.com/v2/guides/files` → 400
+  `value > 250`), car intervals.icu convertit en interne et déborde. On convertit donc
+  `bpm → %FCmax` côté `claude-coach` avec la **FCmax de l'athlète** (`athlete show`,
+  `fc_max`) ; la montre reconvertit en bpm avec sa propre FCmax → affichage bpm correct si
+  les deux FCmax coïncident. **Conséquence** : `push-intervals` exige une FCmax connue dès
+  qu'une cible FC est présente (sinon erreur claire). Les autres cibles (allure, %FCmax,
+  zone, sans cible) passent telles quelles.
+- **Idempotence (upsert)** : intervals.icu **ne dé-duplique pas** au POST (un re-push
+  créerait un doublon, vérifié). `IntervalsClient.upsert_event` cherche donc l'event à la
+  date par `external_id="claude-coach-<id>"` (GET) puis **PUT** s'il existe, sinon **POST**.
+  → re-push = mise à jour, pas de doublon.
+- **Payload event** : `start_date_local` (`…T00:00:00`), `category="WORKOUT"`,
+  `type` (sport-map Strava→intervals : Run/TrailRun/VirtualRun→`Run`, Swim, Walk, Hike),
+  `name`, `workout_doc`, `external_id`, `description` (optionnelle).
+- **Scope** : sports non-vélo (le vélo garde `.zwo`→Zwift). `--dry-run` imprime le
+  payload sans appel réseau. ⚠️ intervals.icu n'uploade vers Suunto que **la semaine à
+  venir** de séances ; une séance trop loin dans le futur n'est pas (encore) poussée.
+- **Smoke test réel (2026-06-10) — VALIDÉ bout-en-bout** : push d'une vraie séance
+  (FC 130-148 bpm → 68-77 %FCmax) → event structuré dans le calendrier + **upload Suunto
+  sans erreur** (`push_errors` vide) ; re-push idempotent confirmé (même event id, pas de
+  doublon). Diagnostic mené via le champ `event.push_errors` (intervals.icu y consigne
+  l'échec d'upload Suunto) en testant des variantes jetables (create→GET→delete).
 
 #### Export `.zwo` Zwift (lot 6.2)
 
@@ -451,7 +508,7 @@ Séances planifiées par l'agent (ou saisies manuellement).
 | actual_activity_id | INTEGER FK → activities(id) ON DELETE SET NULL | Rempli par le matching (lot 5b) |
 | status | TEXT NOT NULL | planned / done / skipped / missed (default 'planned') |
 | notes | TEXT | |
-| blocks_json | TEXT | Blocs structurés — JSON canonique (migration 004). Vélo : blocs puissance %FTP pour `.zwo` (lot 6.2). Non-vélo : blocs running multi-cibles allure/FC/durée/distance pour le push Nolio (lot 9) |
+| blocks_json | TEXT | Blocs structurés — JSON canonique (migration 004). Vélo : blocs puissance %FTP pour `.zwo` (lot 6.2). Non-vélo : blocs running multi-cibles allure/FC/durée/distance, poussés vers intervals.icu (lot 10) ou Nolio (lot 9) |
 | created_at | TEXT NOT NULL | |
 | updated_at | TEXT NOT NULL | |
 
@@ -461,8 +518,9 @@ Index : `idx_planned_sessions_plan_date(training_plan_id, planned_date)`,
 `blocks_json` stocke une liste de blocs canoniques, **routée par sport** : vélo →
 blocs puissance %FTP (`zwo.py`, `kind` ∈ warmup/steady/intervals/cooldown) →
 `plan session export` → `.zwo` Zwift ; non-vélo → blocs running multi-cibles
-(`workout.py`, `Step`/`Repetition`) → `plan session push-nolio` → API Nolio →
-Suunto/Garmin. Saisi via `--blocks` / `set-blocks`. Voir « Export workouts » plus haut.
+(`workout.py`, `Step`/`Repetition`) → `plan session push-intervals` (intervals.icu,
+gratuit) ou `push-nolio` (Nolio) → Suunto/Garmin. Saisi via `--blocks` / `set-blocks`.
+Voir « Export workouts » plus haut.
 
 ### Table `session_debriefs`
 
@@ -512,11 +570,15 @@ claude-coach plan session list --plan-id <ID> [--status ...]
 claude-coach plan session done <ID>  # marquage manuel sans lien vers une activité Strava
 claude-coach plan session skip <ID>  # séance passée volontairement (substitution, repos)
 claude-coach plan session delete <ID>  # supprime une séance non réalisée (report/replanif), refus si statut ≠ planned
-claude-coach plan session set-blocks <ID> "<DSL>"  # blocs structurés (vélo→.zwo / running→Nolio)
+claude-coach plan session set-blocks <ID> "<DSL>"  # blocs structurés (vélo→.zwo / running→intervals.icu|Nolio)
 claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]  # génère le .zwo Zwift (lot 6.2)
-claude-coach plan session push-nolio <ID> [--dry-run] [--athlete-id N]  # pousse la séance running vers Nolio → Suunto (lot 9)
+claude-coach plan session push-intervals <ID> [--dry-run]  # pousse la séance running vers intervals.icu → Suunto (lot 10, gratuit)
+claude-coach plan session push-nolio <ID> [--dry-run] [--athlete-id N]  # idem via Nolio → Suunto (lot 9, API payante)
 
-# Export Nolio (lot 9) — OAuth2 + push séances structurées vers la montre
+# Export intervals.icu (lot 10) — clé API + push séances vers la montre (GRATUIT, recommandé)
+claude-coach intervals status [--json]  # état config (clé API + athlete_id)
+
+# Export Nolio (lot 9) — OAuth2 + push séances structurées vers la montre (API payante)
 claude-coach nolio auth     # flow OAuth2 Nolio (une fois)
 claude-coach nolio status [--json]  # état config + tokens Nolio
 
