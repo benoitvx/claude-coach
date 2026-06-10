@@ -71,12 +71,11 @@ mais présente toujours **ta** version adaptée.
 - `uv run claude-coach plan pause <ID>` — plan en pause **temporaire** (blessure courte, voyage, vie pro intense). Vocation à reprendre.
 - `uv run claude-coach plan abandon <ID>` — plan **abandonné** (objectif changé, blessure longue, plan inadapté). Ne sera pas repris. Préserve l'historique mais distinct de `complete`.
 - `uv run claude-coach plan session add --plan-id N --date YYYY-MM-DD --sport <Run|Ride|Swim|TrailRun|VirtualRide|...> [--session-type endurance|threshold|intervals|long|race|recovery|renfo] [--duration <SECONDS>] [--distance <METERS>] [--intensity easy|moderate|threshold|vo2max|race] [--description "..."] [--notes "..."] [--blocks "<DSL>"]`
-  - **Pour une séance de vélo virtuel structurée** (VirtualRide, home trainer/Zwift uniquement — PAS le vélo outdoor, qui va sur Garmin sans connecteur), renseigne `--blocks` avec le mini-DSL puissance (% FTP) → permet l'export `.zwo`. Segments séparés par `;` : `warmup:10m:50-65` (rampe), `40m@65` (steady), `3x[12m@95;4m@60]` (intervalles effort;récup), `cooldown:8m:65-50`. Ex : `--blocks "warmup:10m:50-65; 3x[12m@95;4m@60]; cooldown:8m:65-50"`.
-  - **Pour une séance de course structurée** (→ push intervals.icu/Suunto), `--blocks` accepte un mini-DSL multi-cibles. Un step = `[warmup|cooldown|active|rest:]<durée>[@<cible>]`. Durée : `<n>min`/`<n>s` (temps) ou `<n>km`/`<n>m` (distance — `min` lève l'ambiguïté avec `m` mètres). Cible : `p<min:sec>` (allure/km), `h<bpm>` (FC), `w<watts>` ; plage possible (`p3:45-4:15`, `h140-150`). Répétitions `Nx[step;step;...]`. **Cibles absolues** : calcule bpm/allure depuis `athlete show --json` (FCmax, VMA). Ex : `--blocks "warmup:15min@h120-140; 6x[400m@p3:45;rest:90s]; cooldown:10min@h120"`.
-- `uv run claude-coach plan session set-blocks <ID> "<DSL>"` — définit/remplace les blocs d'une séance existante (DSL vélo ou running selon le sport, comme `--blocks`).
-- `uv run claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]` — génère le fichier `.zwo` Zwift d'une séance vélo (à partir de ses `--blocks`). FTP-relatif. Écrit dans `data/exports/` + affiche le XML. Propose-le après avoir prescrit une séance vélo structurée.
-- `uv run claude-coach plan session push-intervals <ID> [--dry-run]` — **voie recommandée (gratuite)** : pousse une séance de **course** structurée vers intervals.icu (→ sync auto vers la Suunto 9 via SuuntoPlus Guides). Propose-le après avoir prescrit une séance running structurée. C'est un **write vers un service externe** → propose-le toujours en bloc bash et **demande confirmation** (jamais d'auto-exécution, contrairement au clean match). Utilise `--dry-run` pour montrer à l'athlète le contenu de la séance avant l'envoi réel. Nécessite une clé API renseignée dans `data/config.json` + « Upload planned workouts » coché sur intervals.icu (une fois).
-- `uv run claude-coach plan session push-nolio <ID> [--dry-run]` — même finalité via Nolio, mais **l'écriture API Nolio est réservée aux comptes payants** (403 sinon) → préfère `push-intervals`. Mêmes règles (write externe, confirmation, `--dry-run`).
+  - **Pour une séance de vélo home-trainer structurée** (VirtualRide, Zwift uniquement), renseigne `--blocks` avec le mini-DSL puissance (% FTP). Segments séparés par `;` : `warmup:10m:50-65` (rampe), `40m@65` (steady), `3x[12m@95;4m@60]` (intervalles effort;récup), `cooldown:8m:65-50`. Ex : `--blocks "warmup:10m:50-65; 3x[12m@95;4m@60]; cooldown:8m:65-50"`. → poussé vers Zwift via `push-intervals` (`.zwo` reste un fallback).
+  - **Pour une séance de course OU de vélo outdoor structurée** (→ push intervals.icu : Suunto pour la course, Garmin pour le vélo outdoor), `--blocks` accepte un mini-DSL multi-cibles. Un step = `[warmup|cooldown|active|rest:]<durée>[@<cible>]`. Durée : `<n>min`/`<n>s` (temps) ou `<n>km`/`<n>m` (distance — `min` lève l'ambiguïté avec `m` mètres). Cible : `p<min:sec>` (allure/km), `h<bpm>` (FC), `w<watts>` ; plage possible (`p3:45-4:15`, `h140-150`). Répétitions `Nx[step;step;...]`. **Cibles absolues** : calcule bpm/allure depuis `athlete show --json` (FCmax, VMA). Vélo outdoor = **FC / distance / durée** (pas de capteur de puissance extérieur). Ex course : `--blocks "warmup:15min@h120-140; 6x[400m@p3:45;rest:90s]; cooldown:10min@h120"`. Ex vélo outdoor : `--blocks "warmup:15min@h110-120; 40km; cooldown:10min@h110"`.
+- `uv run claude-coach plan session set-blocks <ID> "<DSL>"` — définit/remplace les blocs d'une séance existante (DSL puissance %FTP pour VirtualRide, multi-cibles sinon, comme `--blocks`).
+- `uv run claude-coach plan session push-intervals <ID> [--dry-run]` — **hub unique (gratuit, voie recommandée pour tous les sports)** : pousse la séance structurée vers intervals.icu, qui la fan-oute selon le sport → **course/natation = Suunto**, **vélo outdoor = Garmin**, **vélo home-trainer (VirtualRide) = Zwift**. Propose-le après avoir prescrit toute séance structurée. C'est un **write vers un service externe** → propose-le toujours en bloc bash et **demande confirmation** (jamais d'auto-exécution, contrairement au clean match). Utilise `--dry-run` pour montrer le contenu avant l'envoi réel. Nécessite une clé API dans `data/config.json` + les connexions Suunto/Garmin/Zwift liées avec « Upload planned workouts » coché sur intervals.icu (une fois).
+- `uv run claude-coach plan session export <ID> [--output <PATH>] [--no-stdout]` — **fallback offline** : génère le `.zwo` Zwift d'une séance **VirtualRide** (import manuel). La voie nominale reste `push-intervals`.
 - `uv run claude-coach plan session done <ID>` — marquage manuel sans lien Strava.
 - `uv run claude-coach plan session skip <ID>` — séance passée volontairement (substitution / repos imprévu). **Utilise ça quand le semantic check Post-séance révèle un mismatch et que l'athlète confirme la substitution.**
 - `uv run claude-coach plan session delete <ID>` — supprime une séance **non encore réalisée** (statut `planned`). **Utilise ça pour un report/replanif** (décaler une séance d'un jour, replanifier un créneau) : ça ne pollue pas l'adhérence, contrairement à `skip`. Refusé sur une séance done/skipped/missed (historique protégé). Pas de `edit`/`move` : pour décaler, `delete` + `add` à la nouvelle date.
@@ -84,38 +83,42 @@ mais présente toujours **ta** version adaptée.
 - `uv run claude-coach debrief add [--activity <ID>] [--session <ID>] [--date YYYY-MM-DD] [--rpe 1-10] [--feeling "..."] [--pain "..."]` — consigne le ressenti d'une séance. **Tu l'exécutes toi-même** après avoir recueilli les sensations en conversation (cf. "Règles d'écriture → Exception"). Lie-le à l'activité (`--activity`) et/ou à la séance planifiée (`--session`) dès que tu les connais. Au moins un de `--rpe`/`--feeling`/`--pain`.
 - `uv run claude-coach debrief edit <ID> [opts]` / `debrief delete <ID>` — correction d'un débrief (sous confirmation, comme les autres écritures).
 
-### Réflexe systématique : sortir les séances vers la montre / Zwift (proactif)
+### Réflexe systématique : sortir les séances vers l'appareil (proactif)
 
 Dès que tu prescris des séances **structurées** (avec `--blocks`), propose
 **proactivement** leur envoi vers l'appareil — **sans attendre que l'athlète le
 demande**. C'est la finalité du projet : il ne re-saisit jamais une séance à la main,
 il la récupère directement sur sa montre ou son home trainer.
 
-**Routage par type de séance (impératif — chaque sport va sur un appareil précis) :**
+**Hub unique = `push-intervals` pour TOUS les sports.** intervals.icu fan-oute la séance
+vers le bon appareil selon le `sport_type` (connexions configurées une fois sur
+intervals.icu). Une seule commande, peu importe le sport :
 
-| Séance (`sport_type`) | Sortie | Commande |
+| Séance (`sport_type`) | Appareil de suivi | Cibles des blocs |
 |---|---|---|
-| **Course / trail / swim&run / triathlon** (Run, TrailRun, VirtualRun, Swim) | → montre **Suunto** | `plan session push-intervals <ID>` (gratuit ; `push-nolio` = alternative payante, à éviter) |
-| **Vélo virtuel** (VirtualRide / Zwift, home trainer) | → **Zwift** | `plan session export <ID>` → `.zwo` |
-| **Vélo outdoor** (Ride route, GravelRide, MountainBikeRide…) | → **Garmin** | **aucune** — pas de connecteur Garmin pour l'instant |
+| **Course / trail / swim&run** (Run, TrailRun, VirtualRun, Swim) | → montre **Suunto 9** | FC (%FCmax) / allure / distance |
+| **Vélo outdoor** (Ride, GravelRide, MountainBikeRide) | → **Suunto 9 au poignet** (guide), l'Edge Explore pour la nav + l'enregistrement | **FC / distance / durée** (pas de puissance — pas de capteur extérieur) |
+| **Vélo home-trainer** (VirtualRide) | → **Zwift** | **puissance %FTP** (DSL `zwo`) |
 
-- Pour le **vélo outdoor** : ne propose **ni `export` ni `push`** (rien ne va vers le
-  Garmin aujourd'hui). Prescris quand même la séance avec une **description claire**
-  (zones de puissance/FC, structure des intervalles) que l'athlète suivra manuellement
-  sur son Garmin. _(Un connecteur Garmin pourra être étudié plus tard.)_ Inutile donc de
-  remplir `--blocks` (puissance %FTP) pour une séance outdoor : les blocs ne servent qu'à
-  l'export `.zwo`, qui ne concerne que le **vélo virtuel**.
+- Tous passent par `plan session push-intervals <ID>`. Pour le vélo outdoor, remplis bien
+  `--blocks` en **FC/distance/durée** (le DSL multi-cibles, pas le DSL puissance).
+- ⚠️ **L'Edge Explore ne supporte PAS les séances structurées** (gamme nav). La séance vélo
+  outdoor arrive bien dans Garmin Connect mais **ne descend pas sur l'Edge** → l'athlète la
+  **suit en guide sur sa Suunto 9 au poignet** (validé), l'Edge servant à tracer la sortie.
+- `plan session export <ID>` (`.zwo`) ne sert plus que de **fallback offline pour
+  VirtualRide** (import manuel Zwift) — ne le propose qu'en secours.
 
 Comment faire concrètement :
 1. Une fois les `plan session add … --blocks …` créées et confirmées (donc les **IDs
-   connus**), enchaîne avec **un bloc bash regroupant les `export` / `push-intervals`**
-   de chaque séance structurée. Pour un plan/semaine entière, propose de pousser **tout
-   le bloc d'un coup**.
-2. Reste sous **confirmation** (ce sont des writes vers un appareil/service externe) et
-   utilise `--dry-run` si l'athlète veut voir le contenu avant l'envoi réel.
-3. Après un `push-intervals`, **rappelle de re-synchroniser la montre** via l'app Suunto.
-4. Les cibles **FC** de course sont converties en %FCmax au push → garde la `fc_max` de
-   l'athlète à jour (`athlete show --json`), sinon le push d'une séance à cible FC échoue.
+   connus**), enchaîne avec **un bloc bash regroupant les `push-intervals`** de chaque
+   séance structurée. Pour un plan/semaine entière, propose de pousser **tout le bloc d'un
+   coup**.
+2. Reste sous **confirmation** (write vers un service externe) et utilise `--dry-run` si
+   l'athlète veut voir le contenu avant l'envoi réel.
+3. Après un `push-intervals`, **rappelle de re-synchroniser l'appareil** (app Suunto /
+   Garmin Connect / Zwift selon le sport).
+4. Les cibles **FC** (course + vélo outdoor) sont converties en %FCmax au push → garde la
+   `fc_max` de l'athlète à jour (`athlete show --json`), sinon le push échoue.
 
 ## Contexte athlète
 

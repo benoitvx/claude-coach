@@ -42,6 +42,18 @@ def sport_family(sport_type: str) -> str:
     return SPORT_FAMILIES.get(sport_type, sport_type.lower())
 
 
+# Vélo « home-trainer / Zwift » piloté en puissance %FTP : ces séances passent par
+# le DSL `zwo.py` (export `.zwo` + push intervals.icu→Zwift). Le vélo *outdoor*
+# (Ride/GravelRide/...) passe, lui, par le DSL multi-cibles `workout.py` (FC/distance)
+# car il part sur Garmin sans capteur de puissance. → discriminant de routage de DSL.
+INDOOR_POWER_SPORTS: frozenset[str] = frozenset({"VirtualRide"})
+
+
+def is_indoor_power_ride(sport_type: str) -> bool:
+    """True pour le vélo home-trainer/Zwift piloté en puissance %FTP (VirtualRide)."""
+    return sport_type in INDOOR_POWER_SPORTS
+
+
 def matching_sport_types(sport_type: str) -> list[str]:
     """Liste des sport_types qui appartiennent à la même famille que `sport_type`.
 

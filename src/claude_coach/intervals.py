@@ -1,10 +1,12 @@
-"""Client API intervals.icu + mapping des blocs vers `workout_doc` (lot 10).
+"""Client API intervals.icu + mapping des blocs vers `workout_doc` (lot 10/11).
 
-Alternative **gratuite** à Nolio (`nolio.py`) pour la voie running→Suunto :
-intervals.icu expose une API ouverte (clé perso, Basic auth `API_KEY:<clé>`) et
-synchronise nativement les séances planifiées vers la montre Suunto (SuuntoPlus
-Guides : cibles allure, FC, distance). On crée/maj un événement calendrier via
-`/api/v1/athlete/{id}/events` ; intervals.icu génère un guide Suunto et le pousse.
+intervals.icu est le **hub unique** d'envoi des séances planifiées : API ouverte
+(clé perso, Basic auth `API_KEY:<clé>`), gratuite, qui fan-oute les séances vers
+les appareils connectés dans son UI web :
+- **Run / TrailRun / Swim → Suunto** (SuuntoPlus Guides : allure, FC, distance) ;
+- **Vélo outdoor (Ride/GravelRide/MountainBikeRide) → Garmin** (FC, distance, durée) ;
+- **Vélo home-trainer (VirtualRide) → Zwift** (puissance %FTP, cf. `workout_doc_from_blocks`).
+On crée/maj un événement calendrier via `/api/v1/athlete/{id}/events`.
 
 On envoie le **`workout_doc` JSON structuré** (pas le texte « workout builder ») :
 le parseur de texte ignore la FC en bpm absolus, le `workout_doc` est sans ambiguïté.
@@ -18,8 +20,9 @@ Décisions clés, **toutes vérifiées contre l'API + l'upload Suunto réels** :
 - **Idempotence** : `POST` ne dé-duplique pas sur `external_id` → `upsert_event`
   fait GET (filtre `external_id`) puis PUT si l'event existe, sinon POST.
 
-Les blocs canoniques (`workout.py`, allure en m/s, FC en bpm) sont réutilisés tels
-quels — seul le mapping diffère de Nolio (qui, lui, accepte les bpm).
+Les blocs canoniques course/vélo-outdoor (`workout.py`, allure m/s, FC bpm) et les
+blocs vélo home-trainer (`zwo.py`, puissance %FTP) sont chacun mappés vers `workout_doc`
+(`workout_doc_from_items` / `workout_doc_from_blocks`).
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ import httpx
 from claude_coach.auth import AuthError, ConfigError
 from claude_coach.models import IntervalsConfig, PlannedSession
 from claude_coach.workout import Repetition, Step, WorkoutItem
+from claude_coach.zwo import Block
 
 MAX_ATTEMPTS = 3
 HTTP_TIMEOUT_S = 30.0
@@ -46,7 +50,8 @@ CONFIG_FILE_DEFAULT = Path("data/config.json")
 
 SleepFn = Callable[[float], None]
 
-# sport_type Strava → `type` intervals.icu (séances non-vélo ; le vélo reste .zwo).
+# sport_type Strava → `type` intervals.icu. intervals.icu fan-oute ensuite par sport :
+# Run/Swim → Suunto, Ride (outdoor) → Garmin, VirtualRide → Zwift (config UI intervals.icu).
 INTERVALS_SPORT_TYPES: dict[str, str] = {
     "Run": "Run",
     "TrailRun": "Run",
@@ -54,6 +59,10 @@ INTERVALS_SPORT_TYPES: dict[str, str] = {
     "Swim": "Swim",
     "Walk": "Walk",
     "Hike": "Hike",
+    "Ride": "Ride",
+    "GravelRide": "Ride",
+    "MountainBikeRide": "Ride",
+    "VirtualRide": "VirtualRide",
 }
 
 
@@ -183,6 +192,71 @@ def workout_doc_from_items(
         else:
             steps.append(_step_to_doc(item, max_hr))
     return {"steps": steps}
+
+
+# --- Mapping blocs vélo %FTP (zwo.py) → workout_doc (puissance %FTP) -----------
+#
+# Le vélo home-trainer (VirtualRide) est piloté en **puissance relative à la FTP**
+# (Zwift applique SA FTP localement). On émet donc la puissance en `%ftp`, jamais en
+# watts absolus. ⚠️ La chaîne d'unité exacte du workout_doc n'est pas documentée
+# publiquement (la doc ne couvre que le builder texte « 85% ») : on l'isole dans
+# `POWER_FTP_UNITS` pour un correctif d'une ligne si l'API attend autre chose
+# (`power_zone`, `%`, ...). À confirmer au 1er push live (un 4xx ⇒ ajuster ici).
+POWER_FTP_UNITS = "%ftp"
+
+
+def _require_power(value: float | None, kind: str) -> float:
+    if value is None:
+        raise ValueError(f"Bloc '{kind}' : champ puissance manquant")
+    return value
+
+
+def _ftp_pct(fraction: float) -> int:
+    """Fraction de FTP (0.95) → pourcentage entier (95)."""
+    return round(fraction * 100)
+
+
+def _power_value(fraction: float) -> dict[str, Any]:
+    pct = _ftp_pct(fraction)
+    return _range_payload(POWER_FTP_UNITS, pct, pct)
+
+
+def _block_to_doc(block: Block) -> dict[str, Any]:
+    if block.kind == "steady":
+        return {
+            "duration": block.duration_s,
+            "power": _power_value(_require_power(block.power, "steady")),
+        }
+    if block.kind in ("warmup", "cooldown"):
+        lo = _ftp_pct(_require_power(block.power_from, block.kind))
+        hi = _ftp_pct(_require_power(block.power_to, block.kind))
+        return {
+            "text": _INTENSITY_LABELS[block.kind],
+            "duration": block.duration_s,
+            "power": _range_payload(POWER_FTP_UNITS, lo, hi),
+        }
+    if block.kind == "intervals":
+        on_step = {
+            "duration": block.on_duration_s,
+            "power": _power_value(_require_power(block.on_power, "intervals")),
+        }
+        off_step = {
+            "text": _INTENSITY_LABELS["rest"],
+            "duration": block.off_duration_s,
+            "power": _power_value(_require_power(block.off_power, "intervals")),
+        }
+        return {"reps": block.repeat, "steps": [on_step, off_step]}
+    raise ValueError(f"Type de bloc inconnu : '{block.kind}'")
+
+
+def workout_doc_from_blocks(blocks: list[Block]) -> dict[str, Any]:
+    """Convertit les blocs vélo %FTP (`zwo.py`) en `workout_doc` (puissance %FTP).
+
+    Pour le vélo home-trainer (VirtualRide) poussé vers Zwift via intervals.icu.
+    Pas de FCmax requise (cibles puissance uniquement). Top-level `{"steps": [...]}`
+    comme `workout_doc_from_items`.
+    """
+    return {"steps": [_block_to_doc(b) for b in blocks]}
 
 
 def build_event_payload(

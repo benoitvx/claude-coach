@@ -5,6 +5,7 @@ from datetime import date, datetime
 
 from claude_coach.coach import (
     SPORT_FAMILIES,
+    is_indoor_power_ride,
     match_all_planned_sessions,
     matching_sport_types,
     session_deltas,
@@ -92,6 +93,15 @@ def test_sport_family_known_cycling() -> None:
 def test_sport_family_unknown_lowercases() -> None:
     assert sport_family("Kitesurf") == "kitesurf"
     assert sport_family("BackcountrySki") == "backcountryski"
+
+
+def test_is_indoor_power_ride() -> None:
+    # Seul le home-trainer (VirtualRide) est piloté en puissance %FTP (→ DSL zwo / Zwift).
+    assert is_indoor_power_ride("VirtualRide")
+    assert not is_indoor_power_ride("Ride")
+    assert not is_indoor_power_ride("GravelRide")
+    assert not is_indoor_power_ride("MountainBikeRide")
+    assert not is_indoor_power_ride("Run")
 
 
 def test_matching_sport_types_returns_family_members() -> None:

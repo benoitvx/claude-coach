@@ -3,13 +3,14 @@
 > Ton coach sportif personnel, branché sur tes vraies données Strava, piloté par un subagent Claude Code. **100 % local. Tu gardes la data, tu gardes la décision.**
 
 ```
-Strava ─► sync ─► SQLite locale ─► CLI (--json) ─► subagent coach ─► plan + séances ─┬─ .zwo ─► Zwift
-                                        │                                  └─ intervals.icu / Nolio ─► Suunto/Garmin
-                              337 tests · mypy --strict · ruff
+Strava ─► sync ─► SQLite locale ─► CLI (--json) ─► subagent coach ─► plan + séances ─► intervals.icu ─┬─ Suunto (course + vélo outdoor)
+                                        │                                                             └─ Zwift (home-trainer)
+                              321 tests · mypy --strict · ruff
 ```
 
 La boucle est fermée : tes données entrent par Strava, le coach raisonne, et la séance ressort
-vers ton home trainer (`.zwo` Zwift, vélo) ou ta montre (intervals.icu → Suunto 9, course à pied — gratuit).
+sur le bon appareil via **intervals.icu** — hub unique gratuit (course **et vélo outdoor** suivis
+sur la Suunto 9, home-trainer sur Zwift).
 
 ## Pourquoi ?
 
@@ -25,7 +26,7 @@ Trois constats :
 2. **Surface CLI typée.** Toutes les lectures sortent en JSON stable (`snake_case`, ISO 8601, `null` jamais omis) : activités, laps, streams, agrégats hebdo/mensuels, métriques athlète historisées.
 3. **Subagent Claude Code.** Un agent `coach` vit dans `.claude/agents/coach.md`. Tu l'invoques depuis n'importe quelle session Claude Code dans le repo : *"demande au coach un état des lieux"*, *"…un plan vers mon trail d'octobre"*, *"…un débrief de ma séance"*. À chaque invocation il commence par un **rituel de démarrage** (sync incrémentale + briefing adhérence) — il ne raisonne jamais sur des données périmées.
 4. **Garde-fou.** Toute écriture qui relève d'une décision (créer un plan, prescrire des blocs, abandonner) est proposée en bloc `bash`, jamais auto-exécutée. Seul l'appariement d'une séance réalisée à son activité Strava — un simple fait — est acté automatiquement.
-5. **Sortie vers ta montre & Zwift.** Le coach prescrit des séances structurées : vélo en blocs de puissance % FTP → `.zwo` Zwift (`plan session export`) ; course à pied en allure/FC/durée/distance → poussées vers ta montre via **l'API intervals.icu** (`plan session push-intervals`), gratuite, qui les synchronise en séances guidées sur ta Suunto 9 (SuuntoPlus Guides). Plus besoin de re-saisir la séance à la main. _(Voie alternative : Nolio, `push-nolio` — mais son API d'écriture est réservée aux comptes payants.)_
+5. **Sortie vers tes appareils via un hub unique.** Le coach prescrit des séances structurées et les pousse toutes par **`plan session push-intervals`** vers **intervals.icu** (gratuit), qui les fan-oute selon le sport : course/natation **et vélo outdoor** → **Suunto 9** (SuuntoPlus Guides, suivi au poignet), vélo home-trainer (VirtualRide) → **Zwift**. Une seule commande, peu importe le sport. Plus besoin de re-saisir la séance à la main. _(Note matériel : l'**Edge Explore** ne gère pas les séances structurées — il sert à la navigation/l'enregistrement, le guide est suivi sur la montre. L'export `.zwo` reste un fallback offline pour Zwift.)_
 
 ## Ce que le coach sait faire
 
@@ -36,8 +37,8 @@ Trois constats :
 - **Spécificité par discipline** : run, ride/Zwift, swim, trail, swim&run, triathlon — chacune avec ses séances types et calibrations.
 - **Data quality check** : si tes FTP/VMA semblent obsolètes par rapport au volume réel, il suggère un test (Cooper 6', FTP 20 min).
 - **Semantic check** : si une séance renfo planifiée a été remplacée par un run, il le détecte avant le matching et te demande comment trancher.
-- **Export `.zwo` Zwift** : il prescrit les blocs de puissance, tu génères le fichier et tu l'exécutes sur ton home trainer (FTP-relatif — Zwift applique ta FTP).
-- **Push intervals.icu → Suunto** (gratuit) : pour la course, il prescrit les blocs (allure/FC/durée/distance, en temps ou en distance) et les pousse vers ton calendrier intervals.icu via l'API (`plan session push-intervals`) ; intervals.icu les synchronise en séances guidées sur ta Suunto 9 (SuuntoPlus Guides). Voie alternative payante : Nolio (`push-nolio`).
+- **Push intervals.icu → tous tes appareils** (gratuit) : il prescrit les blocs et les pousse via `plan session push-intervals` vers intervals.icu, qui les route selon le sport — course/natation (allure/FC/distance) **et vélo outdoor** (FC/distance/durée) → Suunto 9 (SuuntoPlus Guides), vélo home-trainer (puissance %FTP) → Zwift. Une seule commande pour tous les sports.
+- **Export `.zwo` Zwift** (fallback offline) : pour le home-trainer, il prescrit les blocs de puissance et tu peux générer le fichier `.zwo` en secours (FTP-relatif — Zwift applique ta FTP).
 - **Ressenti d'abord** : avant un débrief, il demande tes sensations (RPE, jambes, douleurs, sommeil) et les croise avec la data — la FC seule ment sur la fatigue.
 
 ## Aperçu
@@ -98,50 +99,52 @@ demande au coach un état des lieux
 | **Objectifs** | `goal add/list/show/complete/abandon` |
 | **Plans** | `plan add/list/show/complete/pause/abandon`, `plan match` (planifié ↔ Strava, ±1j) |
 | **Séances** | `plan session add/list/done/skip/delete` |
-| **Export Zwift** | `plan session set-blocks <id> "<DSL>"`, `plan session export <id>` (→ `.zwo`) |
-| **Export Suunto (gratuit)** | `intervals status`, `plan session push-intervals <id> [--dry-run]` (→ Suunto, via intervals.icu) |
-| **Export Suunto (Nolio)** | `nolio auth/status`, `plan session push-nolio <id> [--dry-run]` (→ Suunto/Garmin, API payante) |
+| **Envoi séances (hub)** | `intervals status`, `plan session set-blocks <id> "<DSL>"`, `plan session push-intervals <id> [--dry-run]` (→ Suunto / Zwift selon le sport) |
+| **Fallback Zwift** | `plan session export <id>` (→ `.zwo`, VirtualRide seulement) |
 
 Toutes les commandes de lecture acceptent `--json`. Conventions détaillées : [`specs.md §11`](specs.md).
 
-Les blocs d'une séance vélo s'expriment dans un mini-DSL (puissance en % de FTP) :
+**Vélo home-trainer (VirtualRide → Zwift)** — mini-DSL puissance en % de FTP :
 
 ```bash
 uv run claude-coach plan session set-blocks 14 "warmup:10m:50-65; 3x[12m@95;4m@60]; cooldown:8m:65-50"
-uv run claude-coach plan session export 14        # → data/exports/<slug>.zwo + stdout
+uv run claude-coach plan session push-intervals 14    # → intervals.icu → Zwift (workout custom)
 ```
 
 `warmup/cooldown:<durée>:<%début>-<%fin>` (rampe), `<durée>@<%>` (steady), `Nx[effort;récup]` (intervalles).
 
-Les séances de **course à pied** ont leur propre mini-DSL (cibles allure/FC, durée ou distance),
-poussé **gratuitement** vers la montre via intervals.icu :
+**Course / natation / vélo outdoor** — mini-DSL multi-cibles (allure/FC, durée ou distance) :
 
 ```bash
 uv run claude-coach plan session set-blocks 14 "warmup:15min@h120-140; 6x[400m@p3:45;rest:90s]; cooldown:10min@h120"
-uv run claude-coach plan session push-intervals 14    # → intervals.icu → Suunto 9 (séance guidée)
+uv run claude-coach plan session push-intervals 14    # → Suunto 9 (course, ou vélo outdoor suivi au poignet)
 ```
 
 Chaque segment a **deux axes indépendants** : sa **longueur** (temps `<n>min`/`<n>s` **ou** distance
 `<n>km`/`<n>m`) et sa **cible** (`p<min:sec>` allure/km, `h<bpm>` FC, plage possible `p3:45-4:15` ;
-ou aucune). Toutes les combinaisons sont supportées (temps×allure, distance×FC, etc.).
+ou aucune). Le vélo outdoor se cadre en **FC / distance / durée** (pas de capteur de puissance).
+
+> 🚲 **Vélo outdoor & Garmin Edge Explore** : l'Edge Explore (gamme navigation) **ne gère pas**
+> les séances structurées. La séance vélo outdoor est donc suivie **en guide sur la Suunto 9 au
+> poignet** (validé), l'Edge servant à la navigation et à l'enregistrement. Un Edge « training »
+> (530/830/1030/1040) afficherait, lui, la séance directement.
 
 **Setup intervals.icu** (gratuit, une fois) : génère une clé API dans intervals.icu →
 Settings → Developer Settings, renseigne `intervals_api_key`/`intervals_athlete_id` dans
-`data/config.json` (ou env `INTERVALS_API_KEY`/`INTERVALS_ATHLETE_ID`), et coche
-« Upload planned workouts » dans /settings intervals.icu. La FC est convertie en %FCmax au
-push (Suunto refuse les bpm absolus) → garde ta `fc_max` à jour (`athlete set --fc-max`).
+`data/config.json` (ou env `INTERVALS_API_KEY`/`INTERVALS_ATHLETE_ID`), **lie les connexions
+Suunto / Zwift** et coche « Upload planned workouts ». La FC est convertie en
+%FCmax au push → garde ta `fc_max` à jour (`athlete set --fc-max`) ; aligne ta FTP intervals.icu ↔ Zwift.
 
-> 💡 **Pourquoi intervals.icu et pas Nolio ?** Suunto n'accepte aucun import de fichier de
-> séance directement ; la seule voie est un sync cloud partenaire. Nolio marche aussi
-> (`push-nolio`) mais son API d'écriture est réservée aux comptes **coach/premium** (sinon
-> `403`). intervals.icu offre la même synchro Suunto **gratuitement** → voie recommandée.
+> 💡 **Pourquoi intervals.icu ?** Suunto/Garmin/Zwift n'acceptent pas d'import de fichier de
+> séance arbitraire ; la seule voie ouverte et gratuite est un sync cloud partenaire.
+> intervals.icu en est un, lié aux trois appareils — un seul `push-intervals` les couvre tous.
 
 ## Stack
 
 - **Python 3.12+**, **SQLite** (fichier local), **uv** (packaging + venv).
-- **click** (CLI), **httpx** (HTTP Strava + intervals.icu + Nolio, OAuth2 et rate limiting).
-- **mypy --strict**, **ruff**, **pytest** (337 tests, dont integration tests avec faux serveur HTTP).
-- **Export `.zwo`** via la stdlib (`xml.etree`) ; **push intervals.icu / Nolio** via l'API REST (`httpx`) — zéro dépendance ajoutée.
+- **click** (CLI), **httpx** (HTTP Strava + intervals.icu, OAuth2 et rate limiting).
+- **mypy --strict**, **ruff**, **pytest** (321 tests, dont integration tests avec faux serveur HTTP).
+- **Export `.zwo`** via la stdlib (`xml.etree`) ; **push intervals.icu** via l'API REST (`httpx`) — zéro dépendance ajoutée.
 - **Claude Code subagent** pour le coach — pas de service Python autonome, pas d'API à exposer.
 
 ## Développement

@@ -15,10 +15,12 @@ from claude_coach.intervals import (
     build_event_payload,
     intervals_sport_type,
     load_intervals_config,
+    workout_doc_from_blocks,
     workout_doc_from_items,
 )
 from claude_coach.models import IntervalsConfig, PlannedSession
 from claude_coach.workout import parse_workout
+from claude_coach.zwo import parse_blocks
 
 
 def _session(**overrides: object) -> PlannedSession:
@@ -68,11 +70,42 @@ def test_intervals_sport_type_known() -> None:
     assert intervals_sport_type("Run") == "Run"
     assert intervals_sport_type("TrailRun") == "Run"
     assert intervals_sport_type("Swim") == "Swim"
+    # vélo : outdoor → Garmin (type Ride), home-trainer → Zwift (type VirtualRide).
+    assert intervals_sport_type("Ride") == "Ride"
+    assert intervals_sport_type("GravelRide") == "Ride"
+    assert intervals_sport_type("MountainBikeRide") == "Ride"
+    assert intervals_sport_type("VirtualRide") == "VirtualRide"
 
 
 def test_intervals_sport_type_unknown_raises() -> None:
     with pytest.raises(ValueError):
         intervals_sport_type("Kitesurf")
+
+
+# --- mapping blocs vélo %FTP → workout_doc (puissance %ftp) ------------------
+
+
+def test_workout_doc_from_blocks_full_session() -> None:
+    # warmup rampe (start<end), intervalles reps/steps avec Recovery, steady, cooldown descend.
+    blocks = parse_blocks("warmup:10m:50-65; 3x[12m@95;4m@60]; 40m@68; cooldown:8m:65-50")
+    assert workout_doc_from_blocks(blocks) == {
+        "steps": [
+            {"text": "Warmup", "duration": 600, "power": {"units": "%ftp", "start": 50, "end": 65}},
+            {
+                "reps": 3,
+                "steps": [
+                    {"duration": 720, "power": {"units": "%ftp", "value": 95}},
+                    {"text": "Recovery", "duration": 240, "power": {"units": "%ftp", "value": 60}},
+                ],
+            },
+            {"duration": 2400, "power": {"units": "%ftp", "value": 68}},
+            {
+                "text": "Cooldown",
+                "duration": 480,
+                "power": {"units": "%ftp", "start": 65, "end": 50},
+            },
+        ]
+    }
 
 
 # --- mapping blocs → workout_doc structuré ----------------------------------

@@ -84,7 +84,12 @@ Itérations post-livraison (mai 2026, suite au dogfood) :
 - [~] **6.4** Commande CLI export _(branche zwift livrée via `plan session export` ; le push Suunto passe par `plan session push-nolio`, lot 9 — pas de commande unifiée)_
 - [x] **6.5** Tests : génération de fichiers, validation des formats _(zwift — `tests/test_zwo.py` + tests CLI)_
 
-## Lot 9 — Export des séances structurées vers Nolio (→ Suunto 9)
+## Lot 9 — Export des séances structurées vers Nolio (→ Suunto 9) — ⚠️ RETIRÉ (lot 11)
+
+> **Superseded par le lot 11.** L'écriture API Nolio était réservée aux comptes payants
+> (403, cf. 9.8) ; intervals.icu (lot 10/11) couvre la même finalité gratuitement et pour
+> tous les sports. Code Nolio supprimé (`nolio.py`, `nolio_auth.py`, commandes `nolio`,
+> `push-nolio`, `NolioConfig`/`NolioTokens`, tests). Items conservés pour l'historique.
 
 Suunto n'accepte aucun import de fichier de séance directement sur la montre. La
 voie réaliste (déjà fonctionnelle chez l'utilisateur) : **API Nolio** → la séance
@@ -114,6 +119,22 @@ la couche Nolio en réutilisant `workout.py` + `blocks_json` ; Nolio reste en pl
 - [x] **10.5** Tests : `test_intervals.py` (config, mapping `workout_doc`, payload, client httpserver POST+upsert) + CLI dry-run/erreurs/status
 - [x] **10.6** Docs : `specs.md` (lot 10), `CLAUDE.md`, `backlog.md`, `.claude/agents/coach.md`
 - [x] **10.7** Smoke test réel (2026-06-10) **VALIDÉ bout-en-bout (upload Suunto inclus)** : clé API + athlete_id (`i609642`) configurés, « Upload planned workouts » coché. Push séance #18 (Run, FC 130-148 bpm → 68-77 %FCmax) → event **structuré** + **upload Suunto sans erreur** (`push_errors` vide). Idempotence confirmée (re-push = même event id, pas de doublon). **3 découvertes (toutes via tests jetables create→GET→delete)** : (1) envoyer `workout_doc` JSON, pas du texte ; (2) **FC bpm absolus rejetée par Suunto (`value > 250`) → convertir en %FCmax** ; (3) POST ne dé-duplique pas sur `external_id` → upsert (GET+PUT). Piège diagnostic : Suunto n'uploade que la semaine à venir → tester avec des dates dans la fenêtre.
+
+## Lot 11 — intervals.icu = hub unique d'envoi (course + vélo outdoor + Zwift)
+
+Étude de faisabilité Garmin : intervals.icu fan-oute les séances planifiées vers
+**Suunto + Garmin Connect + Zwift** (gratuit, connexions UI web). On en fait le **point
+d'entrée unique** : `push-intervals` pousse TOUTE séance, routée par sport. Suppression
+de Nolio (lot 9). `.zwo` (lot 6.2) devient un fallback offline VirtualRide.
+
+- [x] **11.1** Discriminant `is_indoor_power_ride` (`coach.py`) : VirtualRide → DSL %FTP (`zwo.py`), tout le reste → DSL multi-cibles (`workout.py`). Routeur `_blocks_json_or_raise` + garde `export` migrés de `is_bike` → `is_indoor_power_ride`.
+- [x] **11.2** `intervals.py` : `INTERVALS_SPORT_TYPES` étendu (Ride/GravelRide/MountainBikeRide→`Ride`, VirtualRide→`VirtualRide`) ; nouveau `workout_doc_from_blocks` (puissance en `%ftp`, constante `POWER_FTP_UNITS`).
+- [x] **11.3** `push-intervals` généralisé à tous les sports : branche VirtualRide (zwo→%ftp, sans FCmax) / autres (workout→%hr). Rejet vélo supprimé. Message + help sport-aware.
+- [x] **11.4** Suppression Nolio : `nolio.py`, `nolio_auth.py`, commandes `nolio`/`push-nolio`, `NolioConfig`/`NolioTokens`, tests.
+- [x] **11.5** Tests : sport-map vélo, `workout_doc_from_blocks` (%ftp), push VirtualRide/outdoor Ride, `is_indoor_power_ride`, rejet `.zwo` outdoor. `make validate` vert (321 tests).
+- [x] **11.6** Docs : `coach.md` (routage hub), `CLAUDE.md`, `README.md`, `specs.md`, `backlog.md`.
+- [x] **11.7** Setup utilisateur (hors code) : Garmin Connect + Zwift liés sur intervals.icu, « Upload planned workouts » coché, FTP alignée intervals.icu ↔ Zwift. ✅
+- [x] **11.8** Smoke test live (2026-06-10) **VALIDÉ** : (1) **`%ftp` accepté par intervals.icu** (VirtualRide #20 → event 115381323, pas de 4xx → `POWER_FTP_UNITS="%ftp"` validé) ; (2) **VirtualRide → Zwift confirmé** (workout custom visible dans Zwift) ; (3) Ride outdoor #21 (FC %hr) → event 115381350, reçu dans Garmin Connect (3 séances à venir). **Découverte matérielle** : l'**Edge Explore NE supporte PAS les séances structurées** (gamme nav) → la séance vélo n'arrive pas sur l'Edge. **Solution validée** : **vélo outdoor suivi en guide sur la Suunto 9 au poignet** (la Suunto accepte le guide vélo ✅), l'Edge sert à la nav + l'enregistrement. Routage coach mis à jour (`coach.md`). Events SMOKE (plan #6) à supprimer.
 
 ## Lot 7 — Débriefs de séance (ressenti / RPE / douleurs)
 

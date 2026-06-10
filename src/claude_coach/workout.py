@@ -1,10 +1,10 @@
-"""Séances structurées multi-cibles (course à pied surtout) — Lot 9.
+"""Séances structurées multi-cibles (course, natation, vélo outdoor) — Lot 9.
 
-Contrairement au `.zwo` Zwift (vélo, puissance %FTP, cf. `zwo.py`), une séance
-running se cadre en **allure**, **fréquence cardiaque**, **durée** ou **distance**.
-Ce module parse un mini-DSL en blocs canoniques (`Step` / `Repetition`), forme
-neutre vis-à-vis de la cible d'export. Le mapping vers le format Nolio
-`structured_workout` vit dans `nolio.py`.
+Contrairement au vélo home-trainer (puissance %FTP, cf. `zwo.py`), ces séances se
+cadrent en **allure**, **fréquence cardiaque**, **durée** ou **distance**. Ce module
+parse un mini-DSL en blocs canoniques (`Step` / `Repetition`), forme neutre vis-à-vis
+de la cible d'export. Le mapping vers le `workout_doc` intervals.icu vit dans
+`intervals.py` (`workout_doc_from_items`).
 
 Mini-DSL (segments séparés par `;` au niveau racine) :
 
@@ -99,7 +99,7 @@ def _parse_duration(token: str) -> tuple[str, int]:
 
 
 def _pace_to_mps(token: str) -> float:
-    """Allure 'm:ss' (min/km) → vitesse en m/s (unité de cible Nolio)."""
+    """Allure 'm:ss' (min/km) → vitesse en m/s (forme canonique interne)."""
     m = _PACE_TOKEN_RE.match(token)
     if not m:
         raise ValueError(f"Allure invalide '{token}' (attendu m:ss par km, ex: 3:45)")
@@ -126,7 +126,7 @@ def _conv_power(token: str) -> float:
     return _parse_int_target(token, _POWER_MIN_W, _POWER_MAX_W, "Puissance")
 
 
-# Préfixe de cible → (target_type Nolio, converti vers l'unité absolue attendue).
+# Préfixe de cible → (target_type canonique, converti vers l'unité absolue attendue).
 _TARGET_PREFIXES: dict[str, tuple[str, Callable[[str], float]]] = {
     "p": ("pace", _pace_to_mps),  # allure min/km → m/s
     "h": ("heartrate", _conv_hr),  # bpm

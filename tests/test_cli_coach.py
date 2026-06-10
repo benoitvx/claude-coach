@@ -718,7 +718,7 @@ def test_session_add_with_blocks_stores_and_serializes(
 
 
 def test_session_add_blocks_running_accepted(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    # Depuis le lot 9, les séances non-vélo acceptent des blocs running (push Nolio).
+    # Les séances course/natation/vélo-outdoor acceptent des blocs multi-cibles (allure/FC).
     _setup_env(monkeypatch, tmp_path)
     runner = CliRunner()
     _make_plan(runner)
@@ -775,7 +775,17 @@ def test_session_set_blocks_then_export(monkeypatch: MonkeyPatch, tmp_path: Path
     _make_plan(runner)
     runner.invoke(
         main,
-        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-12", "--sport", "Ride"],
+        [
+            "plan",
+            "session",
+            "add",
+            "--plan-id",
+            "1",
+            "--date",
+            "2026-06-12",
+            "--sport",
+            "VirtualRide",
+        ],
     )
 
     set_res = runner.invoke(
@@ -810,7 +820,7 @@ def test_export_default_path_under_data(monkeypatch: MonkeyPatch, tmp_path: Path
             "--date",
             "2026-06-12",
             "--sport",
-            "Ride",
+            "VirtualRide",
             "--blocks",
             "30m@65",
         ],
@@ -834,7 +844,22 @@ def test_export_non_bike_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> Non
 
     result = runner.invoke(main, ["plan", "session", "export", "1"])
     assert result.exit_code != 0
-    assert "vélo" in result.output
+    assert "home-trainer" in result.output
+
+
+def test_export_outdoor_ride_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    # Le vélo outdoor passe par push-intervals (→ Garmin), pas par .zwo (réservé VirtualRide).
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-12", "--sport", "Ride"],
+    )
+
+    result = runner.invoke(main, ["plan", "session", "export", "1"])
+    assert result.exit_code != 0
+    assert "home-trainer" in result.output
 
 
 def test_export_without_blocks_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
@@ -843,7 +868,17 @@ def test_export_without_blocks_errors(monkeypatch: MonkeyPatch, tmp_path: Path) 
     _make_plan(runner)
     runner.invoke(
         main,
-        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-06-12", "--sport", "Ride"],
+        [
+            "plan",
+            "session",
+            "add",
+            "--plan-id",
+            "1",
+            "--date",
+            "2026-06-12",
+            "--sport",
+            "VirtualRide",
+        ],
     )
 
     result = runner.invoke(main, ["plan", "session", "export", "1"])
@@ -856,54 +891,6 @@ def test_export_unknown_session_errors(monkeypatch: MonkeyPatch, tmp_path: Path)
     result = CliRunner().invoke(main, ["plan", "session", "export", "999"])
     assert result.exit_code != 0
     assert "Aucune séance" in result.output
-
-
-def test_push_nolio_dry_run_emits_payload(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    _setup_env(monkeypatch, tmp_path)
-    runner = CliRunner()
-    _make_plan(runner)
-    runner.invoke(
-        main,
-        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Run"],
-    )
-    runner.invoke(
-        main,
-        ["plan", "session", "set-blocks", "1", "warmup:15min@h120-140; 6x[400m@p3:45;rest:90s]"],
-    )
-
-    result = runner.invoke(main, ["plan", "session", "push-nolio", "1", "--dry-run"])
-    assert result.exit_code == 0, result.output
-    payload = json.loads(result.output)
-    assert payload["sport_id"] == 2  # Run
-    assert payload["id_partner"] == 1
-    assert payload["date_start"] == "2026-09-01"
-    assert payload["structured_workout"][0]["intensity_type"] == "warmup"
-
-
-def test_push_nolio_on_bike_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    _setup_env(monkeypatch, tmp_path)
-    runner = CliRunner()
-    _make_plan(runner)
-    runner.invoke(
-        main,
-        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Ride"],
-    )
-    result = runner.invoke(main, ["plan", "session", "push-nolio", "1", "--dry-run"])
-    assert result.exit_code != 0
-    assert "vélo" in result.output
-
-
-def test_push_nolio_without_blocks_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
-    _setup_env(monkeypatch, tmp_path)
-    runner = CliRunner()
-    _make_plan(runner)
-    runner.invoke(
-        main,
-        ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Run"],
-    )
-    result = runner.invoke(main, ["plan", "session", "push-nolio", "1", "--dry-run"])
-    assert result.exit_code != 0
-    assert "blocs structurés" in result.output
 
 
 def test_push_intervals_dry_run_emits_payload(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
@@ -948,7 +935,64 @@ def test_push_intervals_hr_without_fcmax_errors(monkeypatch: MonkeyPatch, tmp_pa
     assert "FCmax" in result.output
 
 
-def test_push_intervals_on_bike_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_push_intervals_virtualride_emits_ftp_doc(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    # Vélo home-trainer → Zwift : puissance en %ftp (pas de FCmax requise).
+    _setup_env(monkeypatch, tmp_path)
+    runner = CliRunner()
+    _make_plan(runner)
+    runner.invoke(
+        main,
+        [
+            "plan",
+            "session",
+            "add",
+            "--plan-id",
+            "1",
+            "--date",
+            "2026-09-01",
+            "--sport",
+            "VirtualRide",
+        ],
+    )
+    runner.invoke(
+        main,
+        [
+            "plan",
+            "session",
+            "set-blocks",
+            "1",
+            "warmup:10m:50-65; 3x[12m@95;4m@60]; cooldown:8m:65-50",
+        ],
+    )
+
+    result = runner.invoke(main, ["plan", "session", "push-intervals", "1", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["type"] == "VirtualRide"
+    steps = payload["workout_doc"]["steps"]
+    assert steps[0] == {
+        "text": "Warmup",
+        "duration": 600,
+        "power": {"units": "%ftp", "start": 50, "end": 65},
+    }
+    assert steps[1]["reps"] == 3
+    assert steps[1]["steps"][0]["power"] == {"units": "%ftp", "value": 95}
+    assert steps[1]["steps"][1] == {
+        "text": "Recovery",
+        "duration": 240,
+        "power": {"units": "%ftp", "value": 60},
+    }
+    assert steps[2] == {
+        "text": "Cooldown",
+        "duration": 480,
+        "power": {"units": "%ftp", "start": 65, "end": 50},
+    }
+
+
+def test_push_intervals_outdoor_ride_emits_ride_doc(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
+    # Vélo outdoor → Garmin : type Ride, cibles distance/durée (DSL multi-cibles).
     _setup_env(monkeypatch, tmp_path)
     runner = CliRunner()
     _make_plan(runner)
@@ -956,9 +1000,15 @@ def test_push_intervals_on_bike_errors(monkeypatch: MonkeyPatch, tmp_path: Path)
         main,
         ["plan", "session", "add", "--plan-id", "1", "--date", "2026-09-01", "--sport", "Ride"],
     )
+    runner.invoke(main, ["plan", "session", "set-blocks", "1", "warmup:15min; 40km; 20min"])
+
     result = runner.invoke(main, ["plan", "session", "push-intervals", "1", "--dry-run"])
-    assert result.exit_code != 0
-    assert "vélo" in result.output
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["type"] == "Ride"
+    steps = payload["workout_doc"]["steps"]
+    assert steps[0] == {"text": "Warmup", "duration": 900}
+    assert steps[1] == {"distance": 40000}
 
 
 def test_push_intervals_without_blocks_errors(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
